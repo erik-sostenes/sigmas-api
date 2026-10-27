@@ -128,7 +128,56 @@ CREATE TABLE if not exists product_items (
     FOREIGN KEY (measurement_unit_id) REFERENCES measurement_units(id)
 );
 
+
+INSERT IGNORE INTO departments (name) VALUES
+  ('Soporte Técnico'),
+  ('Planeación');
+
+INSERT IGNORE INTO roles (name) VALUES
+  ('SOLICITANTE'),
+  ('LIDER'),
+  ('SUFICIENCIA'),
+  ('ADMIN');
+
+INSERT IGNORE INTO users
+  (id, clerk_id, department_id, title, first_name, last_name, email)
+VALUES
+  ('11111111-1111-1111-1111-111111111111', 'user_fake_juan',
+   (SELECT id FROM departments WHERE name = 'Soporte Técnico'),
+   'Ing.', 'Juan', 'Pérez', 'juan@test.com'),
+  ('22222222-2222-2222-2222-222222222222', 'user_fake_maria',
+   (SELECT id FROM departments WHERE name = 'Planeación'),
+   'Lic.', 'María', 'López', 'maria@test.com'),
+  ('33333333-3333-3333-3333-333333333333', 'user_fake_carlos',
+   (SELECT id FROM departments WHERE name = 'Planeación'),
+   'Mtro.', 'Carlos', 'Ruiz', 'carlos@test.com');
+
+INSERT IGNORE INTO user_roles (user_id, role_id)
+SELECT '11111111-1111-1111-1111-111111111111', id FROM roles WHERE name = 'SOLICITANTE';
+
+INSERT IGNORE INTO user_roles (user_id, role_id)
+SELECT '22222222-2222-2222-2222-222222222222', id FROM roles WHERE name = 'LIDER';
+
+INSERT IGNORE INTO user_roles (user_id, role_id)
+SELECT '33333333-3333-3333-3333-333333333333', id FROM roles WHERE name = 'SUFICIENCIA';
+
+
 -- migrate:down
+
+DELETE FROM users
+WHERE id IN (
+  '11111111-1111-1111-1111-111111111111',
+  '22222222-2222-2222-2222-222222222222',
+  '33333333-3333-3333-3333-333333333333'
+);
+
+DELETE FROM roles
+WHERE name IN ('SOLICITANTE', 'LIDER', 'SUFICIENCIA', 'ADMIN');
+
+DELETE FROM departments
+WHERE name IN ('Soporte Técnico', 'Planeación');
+
+
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS product_items;

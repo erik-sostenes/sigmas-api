@@ -1,16 +1,16 @@
 import { Module } from '@nestjs/common';
-import { PurchaseRequestController } from './infrastructure/controllers/purchase-request.controller';
-import { PURCHASE_REQUEST_LOGIC } from './business/purchase-request.ports';
-import { PurchaseRequestLogic } from './business/purchase-request.logic';
+import { ConfigModule } from '@nestjs/config';
+import { PurchaseRequestModule } from './purchase-request.module';
+import { MariaDbModule } from './mariadb.module';
 
 @Module({
-  imports: [],
-  controllers: [PurchaseRequestController],
-  providers: [
-    {
-      provide: PURCHASE_REQUEST_LOGIC,
-      useClass: PurchaseRequestLogic,
-    },
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+    }),
+    MariaDbModule,
+    PurchaseRequestModule,
   ],
 })
 export class AppModule {}

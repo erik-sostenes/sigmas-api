@@ -1,28 +1,34 @@
 import {
+  Body,
   Controller,
-  Get,
   HttpCode,
   HttpStatus,
-  Inject,
   Post,
-  Res,
+  UseFilters,
 } from '@nestjs/common';
-import type { PurchaseRequestLogicI } from '../../business/purchase-request.ports';
-import { PURCHASE_REQUEST_LOGIC } from '../../business/purchase-request.ports';
-import type { Response } from 'express';
+import { PurchaseRequestLogicI } from '../../business/purchase-request.ports';
+import { PurchaseRequest } from '../../business/purchase-request.model';
+import { CreatePurchaseRequestDto } from './create-purchase-request.dto';
+import { PurchaseRequestExceptionFilter } from './domain-exception.filter';
 
 @Controller('api/v1/purchase-requests')
+@UseFilters(PurchaseRequestExceptionFilter)
 export class PurchaseRequestController {
-  constructor(
-    @Inject(PURCHASE_REQUEST_LOGIC)
-    private readonly purchaseRequestLogic: PurchaseRequestLogicI,
-  ) {}
+  constructor(private readonly purchaseRequestLogic: PurchaseRequestLogicI) {}
 
-  @Get()
+  @Post()
   @HttpCode(HttpStatus.CREATED)
-  async getHello(@Res({ passthrough: true }) res: Response) {
-    const id = await this.purchaseRequestLogic.create({} as any);
+  async create(@Body() dto: CreatePurchaseRequestDto): Promise<{ id: string }> {
+    const request = new PurchaseRequest({
+      requestedBy: dto.requestedBy,
+      purchaseType: dto.purchaseType,
+      justification: dto.justification,
+      iso: dto.iso,
+      totalAmountEstimated: dto.totalAmountEstimated,
+    });
 
-    res.status(201).json({ id: id });
+    const id = await this.purchaseRequestLogic.create(request);
+
+    return { id };
   }
 }

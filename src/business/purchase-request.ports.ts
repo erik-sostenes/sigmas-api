@@ -1,13 +1,11 @@
 import { PurchaseRequest, PurchaseRequestID } from './purchase-request.model';
 
 // left ports
-export interface PurchaseRequestLogicI {
-  create(request: PurchaseRequest): Promise<PurchaseRequestID>;
+export abstract class PurchaseRequestLogicI {
+  abstract create(request: PurchaseRequest): Promise<PurchaseRequestID>;
 }
 
-export const PURCHASE_REQUEST_LOGIC = Symbol('PURCHASE_REQUEST_LOGIC');
-
 // right ports
-export interface PurchaseRequestRepository {
-  save(request: PurchaseRequest): Promise<PurchaseRequest>;
+export abstract class PurchaseRequestRepositoryI {
+  abstract save(request: PurchaseRequest): Promise<PurchaseRequestID>;
 }

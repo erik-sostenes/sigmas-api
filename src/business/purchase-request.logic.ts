@@ -1,8 +1,18 @@
+import { Injectable } from '@nestjs/common';
 import { PurchaseRequest, PurchaseRequestID } from './purchase-request.model';
-import { PurchaseRequestLogicI } from './purchase-request.ports';
+import {
+  PurchaseRequestLogicI,
+  PurchaseRequestRepositoryI,
+} from './purchase-request.ports';
 
+@Injectable()
 export class PurchaseRequestLogic implements PurchaseRequestLogicI {
+  constructor(
+    private readonly purchaseRequestRepository: PurchaseRequestRepositoryI,
+  ) {}
   async create(request: PurchaseRequest): Promise<PurchaseRequestID> {
-    return 'Hola';
+    const id = await this.purchaseRequestRepository.save(request);
+
+    return id;
   }
 }
