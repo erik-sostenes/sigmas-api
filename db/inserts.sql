@@ -753,4 +753,15 @@ INSERT INTO budget_items (code, name) VALUES
     ('598001', 'Licencias industriales, comerciales y otras'),
     ('599000', 'Otros activos intangibles'),
     ('599001', 'Otros activos intangibles');
--- NOTE: falta los inserts de los roles
+
+-- ------------------------------------------------------------
+-- roles
+-- ------------------------------------------------------------
+INSERT INTO roles (name) VALUES
+    ('Solicitante'),
+    ('Líder de actividad'),
+    ('Suficiencia presupuestal'),
+    ('Recursos materiales y servicios'),
+    ('Servicios administrativos'),
+    ('Administrador');
+
