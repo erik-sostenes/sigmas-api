@@ -289,30 +289,30 @@ INSERT INTO activities (component_id, code, name, leader_id) VALUES
 -- measurement_units
 -- ------------------------------------------------------------
 INSERT INTO measurement_units (id, name) VALUES
-    (1, 'Bulto'),
-    (2, 'Caja'),
-    (3, 'Centimetro'),
-    (4, 'Centimetro cuadrado'),
-    (5, 'Centimetro cubico'),
-    (6, 'Dia'),
-    (7, 'Galon'),
-    (8, 'Gramo'),
-    (9, 'Hectarea'),
-    (10, 'Hora'),
-    (11, 'Kilogramo'),
-    (12, 'Kilometro'),
-    (13, 'Litro'),
-    (14, 'Lote'),
-    (15, 'Metro'),
-    (16, 'Metro cuadrado'),
-    (17, 'Metro cubico'),
-    (18, 'Miligramo'),
-    (19, 'Mililitro'),
-    (20, 'Milimetro'),
-    (21, 'Millar'),
-    (22, 'Pieza'),
-    (23, 'Paquete'),
-    (24, 'Servicio');
+    ('Bulto'),
+    ('Caja'),
+    ('Centimetro'),
+    ('Centimetro cuadrado'),
+    ('Centimetro cubico'),
+    ('Dia'),
+    ('Galon'),
+    ('Gramo'),
+    ('Hectarea'),
+    ('Hora'),
+    ('Kilogramo'),
+    ('Kilometro'),
+    ('Litro'),
+    ('Lote'),
+    ('Metro'),
+    ('Metro cuadrado'),
+    ('Metro cubico'),
+    ('Miligramo'),
+    ('Mililitro'),
+    ('Milimetro'),
+    ('Millar'),
+    ('Pieza'),
+    ('Paquete'),
+    ('Servicio');
     
 -- ------------------------------------------------------------
 -- budget_items
@@ -757,11 +757,19 @@ INSERT INTO budget_items (code, name) VALUES
 -- ------------------------------------------------------------
 -- roles
 -- ------------------------------------------------------------
+-- INSERT INTO roles (name) VALUES
+--     ('Solicitante'),
+--     ('Líder de actividad'),
+--     ('Suficiencia presupuestal'),
+--     ('Recursos materiales y servicios'),
+--     ('Servicios administrativos'),
+--     ('Administrador');
+
 INSERT INTO roles (name) VALUES
-    ('Solicitante'),
-    ('Líder de actividad'),
-    ('Suficiencia presupuestal'),
-    ('Recursos materiales y servicios'),
-    ('Servicios administrativos'),
-    ('Administrador');
+    ('solicitante'),
+    ('lider_actividad'),
+    ('suficiencia_presupuestal'),
+    ('recursos_materiales'),
+    ('servicios_administrativos'),
+    ('admin');
 
