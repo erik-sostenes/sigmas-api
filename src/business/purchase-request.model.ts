@@ -59,23 +59,4 @@ export class PurchaseRequest {
     this.createdAt = props.createdAt;
     this.updatedAt = props.updatedAt;
   }
-
-  validate(): void {
-    if (this.requestedBy.trim().length === 0) {
-      throw new InvalidPurchaseRequestError('El solicitante es obligatorio.');
-    }
-    if (this.justification.trim().length === 0) {
-      throw new InvalidPurchaseRequestError('La justificación es obligatoria.');
-    }
-    if (!PURCHASE_TYPES.includes(this.purchaseType)) {
-      throw new InvalidPurchaseRequestError('El tipo de compra no es válido.');
-    }
-    if (this.totalAmountEstimated < 0 || this.totalAmountFinal < 0) {
-      throw new InvalidPurchaseRequestError(
-        'Los montos no pueden ser negativos.',
-      );
-    }
-  }
 }
-
-import { InvalidPurchaseRequestError } from './purchase-request.errors';
