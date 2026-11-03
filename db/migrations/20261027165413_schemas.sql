@@ -8,7 +8,7 @@ CREATE TABLE if not exists administrative_units ( -- ya lo tenemos
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     code VARCHAR(10) NOT NULL UNIQUE,
     name VARCHAR(150) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci; ;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
  -- 1000 <-> 'Dirección Académica', 2000 <-> 'Dirección de Planeación y Vinculación', 3000 <->'Subdirección de Posgrado e Investigación',
  -- 'Subdirección de Planeación', 'Subdirección de Servicios Administrativos'
 
@@ -35,8 +35,6 @@ CREATE TABLE IF NOT EXISTS users (
     clerk_id VARCHAR(100) COLLATE utf8mb4_bin NOT NULL UNIQUE,
     department_id INT UNSIGNED NOT NULL,
     title VARCHAR(30) NULL,
-    first_name VARCHAR(80) NOT NULL,
-    last_name VARCHAR(80) NOT NULL,
     email VARCHAR(254) NOT NULL UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -138,45 +136,7 @@ INSERT IGNORE INTO roles (name) VALUES
   ('SUFICIENCIA'),
   ('ADMIN');
 
-INSERT IGNORE INTO users
-  (id, clerk_id, department_id, title, first_name, last_name, email)
-VALUES
-  ('11111111-1111-1111-1111-111111111111', 'user_fake_juan',
-   (SELECT id FROM departments WHERE name = 'Soporte Técnico'),
-   'Ing.', 'Juan', 'Pérez', 'juan@test.com'),
-  ('22222222-2222-2222-2222-222222222222', 'user_fake_maria',
-   (SELECT id FROM departments WHERE name = 'Planeación'),
-   'Lic.', 'María', 'López', 'maria@test.com'),
-  ('33333333-3333-3333-3333-333333333333', 'user_fake_carlos',
-   (SELECT id FROM departments WHERE name = 'Planeación'),
-   'Mtro.', 'Carlos', 'Ruiz', 'carlos@test.com');
-
-INSERT IGNORE INTO user_roles (user_id, role_id)
-SELECT '11111111-1111-1111-1111-111111111111', id FROM roles WHERE name = 'SOLICITANTE';
-
-INSERT IGNORE INTO user_roles (user_id, role_id)
-SELECT '22222222-2222-2222-2222-222222222222', id FROM roles WHERE name = 'LIDER';
-
-INSERT IGNORE INTO user_roles (user_id, role_id)
-SELECT '33333333-3333-3333-3333-333333333333', id FROM roles WHERE name = 'SUFICIENCIA';
-
 -- migrate:down
-
-DELETE FROM users
-WHERE id IN (
-  '11111111-1111-1111-1111-111111111111',
-  '22222222-2222-2222-2222-222222222222',
-  '33333333-3333-3333-3333-333333333333'
-);
-
-DELETE FROM roles
-WHERE name IN ('SOLICITANTE', 'LIDER', 'SUFICIENCIA', 'ADMIN');
-
-DELETE FROM departments
-WHERE name IN ('Soporte Técnico', 'Planeación');
-
-
-SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS product_items;
 DROP TABLE IF EXISTS request_components;
@@ -191,5 +151,3 @@ DROP TABLE IF EXISTS measurement_units;
 DROP TABLE IF EXISTS funding_sources;
 DROP TABLE IF EXISTS administrative_units;
 DROP TABLE IF EXISTS departments;
-
-SET FOREIGN_KEY_CHECKS = 1;
