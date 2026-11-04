@@ -6,7 +6,7 @@
 -- departments
 -- (derivados de las áreas únicas de los solicitantes)
 -- ------------------------------------------------------------
-INSERT INTO departments (name) VALUES
+INSERT IGNORE INTO departments (name) VALUES
     ('DIRECCIÓN GENERAL'),
     ('RESIDENCIAS PROFESIONALES Y SERVICIO SOCIAL'),
     ('INVESTIGACIÓN Y POSGRADO'),
@@ -21,14 +21,15 @@ INSERT INTO departments (name) VALUES
     ('SERVICIOS ADMINISTRATIVOS'),
     ('DESARROLLO DE PERSONAL'),
     ('RECURSOS MATERIALES Y SERVICIOS'),
-    ('ELECTROMECANICA'),
-    ('LOGISTICA'),
+    ('INGENIERÍA ELECTROMECANICA'),
+    ('INGENIERÍA EN LOGISTICA'),
     ('INGENIERÍA INDUSTRIAL'),
     ('INGENIERÍA EN INDUSTRIAS ALIMENTARIAS'),
     ('SUBDIRECCIÓN ACADÉMICA'),
     ('INGENIERÍA EN GESTIÓN EMPRESARIAL'),
     ('ARQUITECTURA'),
-    ('INGENIERÍA EN SISTEMAS COMPUTACIONALES');
+    ('INGENIERÍA EN SISTEMAS COMPUTACIONALES'),
+    ('SOPORTE TÉCNICO');
 
 -- ------------------------------------------------------------
 -- administrative_units
@@ -54,104 +55,104 @@ INSERT INTO funding_sources (code, name) VALUES
 -- queden disponibles al insertar components/activities.
 -- clerk_id usa placeholder; actualizar con el ID real de Clerk.
 -- ------------------------------------------------------------
-INSERT INTO users (clerk_id, department_id, title, first_name, last_name, email) VALUES
+INSERT INTO users (clerk_id, department_id, title, email) VALUES
 -- Líder de componente
 ('placeholder_ebecerra',
     (SELECT id FROM departments WHERE name = 'INVESTIGACIÓN Y POSGRADO'),
-    'Dr.', 'EDUARDO', 'BECERRA CORDOVA', 'ebecerra@placeholder.edu.mx'),
+    'Dr.', 'ebecerra@placeholder.edu.mx'),
 
 -- Solicitantes
 ('placeholder_jdominguez',
     (SELECT id FROM departments WHERE name = 'DIRECCIÓN GENERAL'),
-    'Mtro.', 'JOSÉ CONCEPCIÓN', 'DOMINGUEZ LÓPEZ', 'jdominguez@placeholder.edu.mx'),
+    'Mtro.', 'jdominguez@placeholder.edu.mx'),
 
 ('placeholder_crojo',
     (SELECT id FROM departments WHERE name = 'RESIDENCIAS PROFESIONALES Y SERVICIO SOCIAL'),
-    'C.P.', 'CARMEN', 'ROJO MONROY', 'crojo@placeholder.edu.mx'),
+    'C.P.', 'crojo@placeholder.edu.mx'),
 
 ('placeholder_alopez',
     (SELECT id FROM departments WHERE name = 'INVESTIGACIÓN Y POSGRADO'),
-    'Mtro.', 'AURELIO', 'LÓPEZ RODRÍGUEZ', 'alopez@placeholder.edu.mx'),
+    'Mtro.', 'alopez@placeholder.edu.mx'),
 
 ('placeholder_kgonzalez',
     (SELECT id FROM departments WHERE name = 'DIFUSIÓN, CULTURA Y DEPORTE'),
-    'Mtra.', 'KAREN PAOLA', 'GONZÁLEZ RIVERO', 'kgonzalez@placeholder.edu.mx'),
+    'Mtra.', 'kgonzalez@placeholder.edu.mx'),
 
 ('placeholder_flugo',
     (SELECT id FROM departments WHERE name = 'CIENCIAS BÁSICAS'),
-    'Ing.', 'FRANK', 'LUGO MOTA', 'flugo@placeholder.edu.mx'),
+    'Ing.', 'flugo@placeholder.edu.mx'),
 
 ('placeholder_bsanchez',
     (SELECT id FROM departments WHERE name = 'DESARROLLO ACADÉMICO'),
-    'Lic.', 'BEATRIZ', 'SÁNCHEZ DELGADO', 'bsanchez@placeholder.edu.mx'),
+    'Lic.', 'bsanchez@placeholder.edu.mx'),
 
 ('placeholder_rmontoya',
     (SELECT id FROM departments WHERE name = 'CONTROL ESCOLAR'),
-    'Lic.', 'ROCIO', 'MONTOYA PÉREZ', 'rmontoya@placeholder.edu.mx'),
+    'Lic.', 'rmontoya@placeholder.edu.mx'),
 
 ('placeholder_jcornejo',
     (SELECT id FROM departments WHERE name = 'INGENIERÍA EN TECNOLOGÍAS DE LA INFORMACIÓN Y COMUNICACIONES'),
-    'Lic.', 'JUAN', 'CORNEJO HERNÁNDEZ', 'jcornejo@placeholder.edu.mx'),
+    'Lic.', 'jcornejo@placeholder.edu.mx'),
 
 ('placeholder_ahernandez',
     (SELECT id FROM departments WHERE name = 'PLANEACIÓN Y VINCULACIÓN'),
-    'Mtro.', 'ANGEL', 'HERNÁNDEZ CABRERA', 'ahernandez@placeholder.edu.mx'),
+    'Mtro.', 'ahernandez@placeholder.edu.mx'),
 
 ('placeholder_mordonez',
     (SELECT id FROM departments WHERE name = 'VINCULACIÓN'),
-    'Lic.', 'MICHELL', 'ORDOÑEZ CORNEJO', 'mordonez@placeholder.edu.mx'),
+    'Lic.', 'mordonez@placeholder.edu.mx'),
 
 ('placeholder_bangeles',
     (SELECT id FROM departments WHERE name = 'PLANEACIÓN'),
-    'Ing.', 'BERNARDO', 'ÁNGELES CRUZ', 'bangeles@placeholder.edu.mx'),
+    'Ing.', 'bangeles@placeholder.edu.mx'),
 
 ('placeholder_ameza',
     (SELECT id FROM departments WHERE name = 'SERVICIOS ADMINISTRATIVOS'),
-    'Lic.', 'ARACELI', 'MEZA PÉREZ', 'ameza@placeholder.edu.mx'),
+    'Lic.', 'ameza@placeholder.edu.mx'),
 
 ('placeholder_yrodriguez',
     (SELECT id FROM departments WHERE name = 'DESARROLLO DE PERSONAL'),
-    'Mtra.', 'YANETH', 'RODRIGUEZ LÓPEZ', 'yrodriguez@placeholder.edu.mx'),
+    'Mtra.', 'yrodriguez@placeholder.edu.mx'),
 
 ('placeholder_nramirez',
     (SELECT id FROM departments WHERE name = 'RECURSOS MATERIALES Y SERVICIOS'),
-    'Ing.', 'NATALI', 'RAMÍREZ MENDOZA', 'nramirez@placeholder.edu.mx'),
+    'Ing.', 'nramirez@placeholder.edu.mx'),
 
 ('placeholder_aquintero',
     (SELECT id FROM departments WHERE name = 'INGENIERÍA INDUSTRIAL'),
-    'Ing.', 'ANWAR', 'QUINTERO OCARIZ', 'aquintero@placeholder.edu.mx'),
+    'Ing.', 'aquintero@placeholder.edu.mx'),
 
 ('placeholder_egomez',
     (SELECT id FROM departments WHERE name = 'INGENIERÍA EN INDUSTRIAS ALIMENTARIAS'),
-    'Dr.', 'ERIK', 'GÓMEZ HERNÁNDEZ', 'egomez@placeholder.edu.mx'),
+    'Dr.', 'egomez@placeholder.edu.mx'),
 
 ('placeholder_mgarcia',
     (SELECT id FROM departments WHERE name = 'INGENIERÍA ELECTROMECANICA'),
-    'Ing.', 'MARTIN', 'GARCÍA ÁNGELES', 'mgarcia@placeholder.edu.mx'),
+    'Ing.', 'mgarcia@placeholder.edu.mx'),
 
 ('placeholder_rporras',
     (SELECT id FROM departments WHERE name = 'SUBDIRECCIÓN ACADÉMICA'),
-    'Mtro.', 'ROLANDO', 'PORRAS MUÑOZ', 'rporras@placeholder.edu.mx'),
+    'Mtro.', 'rporras@placeholder.edu.mx'),
 
 ('placeholder_ebarrera',
     (SELECT id FROM departments WHERE name = 'INGENIERÍA EN GESTIÓN EMPRESARIAL'),
-    'Mtra.', 'ESPERANZA', 'BARRERA PÉREZ', 'ebarrera@placeholder.edu.mx'),
+    'Mtra.', 'ebarrera@placeholder.edu.mx'),
 
 ('placeholder_vmartinez',
     (SELECT id FROM departments WHERE name = 'ARQUITECTURA'),
-    'Arq.', 'VICTOR', 'MARTÍNEZ YBARRA', 'vmartinez@placeholder.edu.mx'),
+    'Arq.', 'vmartinez@placeholder.edu.mx'),
 
 ('placeholder_malvarez',
     (SELECT id FROM departments WHERE name = 'INGENIERÍA EN LOGISTICA'),
-    'Mtro.', 'MARIO', 'ÁLVAREZ GARCÍA', 'malvarez@placeholder.edu.mx'),
+    'Mtro.', 'malvarez@placeholder.edu.mx'),
 
 ('placeholder_kjperez',
     (SELECT id FROM departments WHERE name = 'INVESTIGACIÓN Y POSGRADO'),
-    'Dra.', 'KARLA JARETH', 'PÉREZ VIVEROS', 'kjperez@placeholder.edu.mx'),
+    'Dra.', 'kjperez@placeholder.edu.mx'),
 
 ('placeholder_camartinez',
     (SELECT id FROM departments WHERE name = 'INGENIERÍA EN SISTEMAS COMPUTACIONALES'),
-    'Mtra.', 'CITLALI AZUCENA', 'MARTÍNEZ CALVA', 'camartinez@placeholder.edu.mx');-- ------------------------------------------------------------
+    'Mtra.', 'camartinez@placeholder.edu.mx');-- ------------------------------------------------------------
 
 -- components
 -- administrative_unit_id mapeado al componente según dominio:
@@ -288,7 +289,7 @@ INSERT INTO activities (component_id, code, name, leader_id) VALUES
 -- ------------------------------------------------------------
 -- measurement_units
 -- ------------------------------------------------------------
-INSERT INTO measurement_units (id, name) VALUES
+INSERT INTO measurement_units (name) VALUES
     ('Bulto'),
     ('Caja'),
     ('Centimetro'),
@@ -757,19 +758,13 @@ INSERT INTO budget_items (code, name) VALUES
 -- ------------------------------------------------------------
 -- roles
 -- ------------------------------------------------------------
--- INSERT INTO roles (name) VALUES
---     ('Solicitante'),
---     ('Líder de actividad'),
---     ('Suficiencia presupuestal'),
---     ('Recursos materiales y servicios'),
---     ('Servicios administrativos'),
---     ('Administrador');
-
-INSERT INTO roles (name) VALUES
-    ('solicitante'),
-    ('lider_actividad'),
-    ('suficiencia_presupuestal'),
-    ('recursos_materiales'),
-    ('servicios_administrativos'),
-    ('admin');
+INSERT INTO roles (code, name) VALUES
+    ('solicitante', 'Solicitante'),
+    ('lider_actividad', 'Líder de actividad'),
+    ('suficiencia_presupuestal', 'Suficiencia presupuestal'),
+    ('recursos_materiales', 'Recursos materiales y servicios'),
+    ('servicios_administrativos', 'Servicios administrativos'),
+    ('admin', 'Administrador')
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name);
 

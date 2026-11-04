@@ -4,26 +4,28 @@ import { InvitationRepositoryI } from '../../business/invitation.ports';
 import { Invitation } from '../../business/invitation.model';
 import { ClerkInvitationError } from '../../business/invitation.errors';
 
+const DEFAULT_REDIRECT_URL = 'http://localhost:5173/user-register';
+
 @Injectable()
 export class ClerkInvitationRepository implements InvitationRepositoryI {
-  // 2. Crea la instancia
   private readonly clerkClient = createClerkClient({
     secretKey: process.env.CLERK_SECRET_KEY,
   });
 
   async sendClerkInvitation(invitation: Invitation): Promise<void> {
+    const redirectUrl =
+      process.env.CLERK_INVITATION_REDIRECT_URL?.trim() || DEFAULT_REDIRECT_URL;
+
     try {
-      // 3. Usa la instancia
       await this.clerkClient.invitations.createInvitation({
         emailAddress: invitation.email,
-        // TODO: especificar los roles
         publicMetadata: {
           departmentId: invitation.departmentId,
           title: invitation.title,
+          roleCodes: invitation.roleCodes,
+          activityCodes: invitation.activityCodes,
         },
-
-        // TODO: manejar esta ruta como una variable de entorno
-        redirectUrl: 'http://localhost:5173/user-register',
+        redirectUrl,
       });
     } catch (error: any) {
       const clerkMessage = error.errors?.[0]?.message || error.message;

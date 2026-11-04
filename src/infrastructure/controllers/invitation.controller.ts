@@ -4,6 +4,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  UseFilters,
   UseGuards,
 } from '@nestjs/common';
 import { InvitationLogicI } from '../../business/invitation.ports';
@@ -11,9 +12,11 @@ import { Invitation } from '../../business/invitation.model';
 import { CreateInvitationDto } from './invitation.dto';
 import { ClerkAuthGuard } from './guards/clerk-auth.guard';
 import { SuperAdminGuard } from './guards/super-admin.guard';
+import { InvitationExceptionFilter } from './invitation-exception.filter';
 
 @Controller('api/v1/invitations')
 @UseGuards(ClerkAuthGuard, SuperAdminGuard)
+@UseFilters(InvitationExceptionFilter)
 export class InvitationController {
   constructor(private readonly invitationLogic: InvitationLogicI) {}
 
@@ -24,6 +27,8 @@ export class InvitationController {
       email: dto.email,
       departmentId: dto.departmentId,
       title: dto.title,
+      roleCodes: dto.roleCodes,
+      activityCodes: dto.activityCodes ?? [],
     });
 
     await this.invitationLogic.send(invitation);

@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import compression from 'compression';
 
 async function bootstrap() {
@@ -9,15 +9,23 @@ async function bootstrap() {
     rawBody: true,
   });
 
+  const allowedOrigins =
+    process.env.ORIGINS?.split(',')
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0) ?? [];
+
   app.use(compression());
   app.useSecurityHeaders();
 
   app.enableCsrfProtection({
-    trustedOrigins: process.env.ORIGINS?.split(',') ?? [],
+    trustedOrigins: allowedOrigins,
+    exclude: [
+      { path: 'api/v1/user/webhook/clerk', method: RequestMethod.POST },
+    ],
   });
 
   app.enableCors({
-    origin: process.env.ORIGINS?.split(',') ?? [],
+    origin: allowedOrigins,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
   });
 

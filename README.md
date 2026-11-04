@@ -142,13 +142,19 @@ pnpm install
 
 ### 2. Configurar variables de entorno
 
-Crea un archivo `.env` en la raíz del proyecto:
+Crea un archivo `.env` en la raíz del proyecto (puedes basarte en `.env.example`):
 
 ```env
-DATABASE_URL=mysql://sigmas_user:sigmas_pass@localhost:3306/sigmas
+DATABASE_URL=mysql://sigmas_user:sigmas_pass@localhost:3308/sigmas
+PORT=3000
+ORIGINS=http://localhost:5173
+CLERK_SECRET_KEY=sk_test_reemplaza_con_tu_clave
+CLERK_WEBHOOK_SIGNING_SECRET=whsec_reemplaza_con_tu_secreto
+CLERK_INVITATION_REDIRECT_URL=http://localhost:5173/user-register
+ADMIN_CLERK_METADATA_FALLBACK=false
 ```
 
-Estos valores coinciden con los de `compose.yaml`. Si cambias el usuario, la contraseña o la base de datos allí, cámbialos también aquí.
+Estos valores de base de datos coinciden con los de `compose.yaml` (puerto local `3308` mapeado al `3306` del contenedor). Si cambias el usuario, la contraseña, el puerto o la base de datos allí, cámbialos también aquí.
 
 > **Importante:** el esquema de la URL debe ser `mysql://` (no `mariadb://`), porque es el que reconoce `dbmate`. La API usa la misma variable y funciona igual con ese esquema.
 
@@ -160,7 +166,7 @@ Si el usuario o la contraseña tienen caracteres especiales (`@`, `:`, `/`, etc.
 docker compose up -d
 ```
 
-Esto inicia un contenedor `sigmas-mariadb` (MariaDB 11) en el puerto `3306`, con la base de datos `sigmas` y el usuario `sigmas_user` ya creados. Los datos se guardan en el volumen `mariadb_data`, así que sobreviven a reinicios del contenedor.
+Esto inicia un contenedor `sigmas-mariadb` (MariaDB 11) expuesto en el puerto local `3308` (`3308:3306`), con la base de datos `sigmas` y el usuario `sigmas_user` ya creados. Los datos se guardan en el volumen `mariadb_data`, así que sobreviven a reinicios del contenedor.
 
 ### 4. Aplicar las migraciones
 
@@ -168,18 +174,22 @@ Esto inicia un contenedor `sigmas-mariadb` (MariaDB 11) en el puerto `3306`, con
 dbmate up
 ```
 
-Esto crea las tablas definidas en `db/migrations/`. Si la base de datos aún no existe, `dbmate` la crea.
+Esto crea y actualiza las tablas definidas en `db/migrations/`. Si la base de datos aún no existe, `dbmate` la crea.
 
-### 5. Compilar y levantar en desarrollo
-
-La primera vez, compila una vez para generar la carpeta `dist/`:
+### 5. Compilar, levantar en desarrollo y exponer con ngrok
 
 ```bash
-pnpm build
-pnpm dev
+pnpm run build
+pnpm run start:dev
 ```
 
-`pnpm dev` ejecuta en paralelo `tsc --watch` (recompila al guardar) y `node --watch` (reinicia el servidor cuando cambia `dist/`).
+Para recibir el webhook `user.created` de Clerk en desarrollo local, expón el puerto `3000` con `ngrok`:
+
+```bash
+ngrok http 3000
+```
+
+Consulta el contrato completo de los endpoints de catálogos, invitaciones y webhook en [`docs/INVITATIONS.md`](./docs/INVITATIONS.md).
 
 ## Base de datos y migraciones (dbmate)
 

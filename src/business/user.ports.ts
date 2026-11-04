@@ -8,4 +8,5 @@ export abstract class UserLogicI {
 // Right port
 export abstract class UserRepositoryI {
   abstract save(user: User): Promise<UserId>;
+  abstract hasActiveRole(clerkId: string, roleCode: string): Promise<boolean>;
 }
