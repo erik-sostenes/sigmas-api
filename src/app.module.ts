@@ -4,6 +4,8 @@ import { PurchaseRequestModule } from './purchase-request.module';
 import { InvitationModule } from './invitation.module';
 import { UserModule } from './user.module';
 import { UserAssignmentModule } from './user-assignment.module';
+import { IsoModule } from './iso.module';
+import { ComponentModule } from './component.module';
 
 @Module({
   imports: [
@@ -15,6 +17,8 @@ import { UserAssignmentModule } from './user-assignment.module';
     InvitationModule,
     UserModule,
     UserAssignmentModule,
+    IsoModule,
+    ComponentModule,
   ],
 })
 export class AppModule {}

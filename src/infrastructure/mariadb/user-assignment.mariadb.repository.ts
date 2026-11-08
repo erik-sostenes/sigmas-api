@@ -48,7 +48,6 @@ export class UserAssignmentMariaDBRepository implements UserAssignmentRepository
         this.pool.execute<DepartmentRow[]>(
           `SELECT id, name
            FROM departments
-           WHERE is_active = TRUE
            ORDER BY name ASC`,
         ),
         this.pool.execute<RoleRow[]>(
@@ -71,7 +70,8 @@ export class UserAssignmentMariaDBRepository implements UserAssignmentRepository
              u.title AS leader_title,
              u.email AS leader_email
            FROM activities a
-           LEFT JOIN users u ON u.id = a.leader_id
+           LEFT JOIN user_activities ua ON ua.activity_id = a.id
+           LEFT JOIN users u ON u.id = ua.user_id
            ORDER BY a.code ASC`,
         ),
       ]);
@@ -125,6 +125,21 @@ export class UserAssignmentMariaDBRepository implements UserAssignmentRepository
       roles,
       components,
     };
+  }
+
+  async findRoles(): Promise<RoleOption[]> {
+    const roleRows = await this.pool.execute<RoleRow[]>(
+      `SELECT id, code, name
+       FROM roles
+       ORDER BY id ASC`,
+    );
+
+    return roleRows.map((row) => ({
+      id: Number(row.id),
+      code: row.code,
+      name: row.name,
+      requiresActivities: row.code === LIDER_ACTIVIDAD_ROLE_CODE,
+    }));
   }
 }
 

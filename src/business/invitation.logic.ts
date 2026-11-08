@@ -12,6 +12,7 @@ import {
   InvitationActivitiesNotFoundError,
   InvitationActivityAlreadyHasLeaderError,
   InvitationDepartmentNotFoundError,
+  InvitationRoleIdsNotFoundError,
   InvitationRolesNotFoundError,
   InvitationUserAlreadyExistsError,
   LeaderInvitationRequiresActivitiesError,
@@ -25,18 +26,86 @@ export class InvitationLogic implements InvitationLogicI {
   ) {}
 
   async send(invitation: Invitation): Promise<void> {
-    if (
-      invitation.roleCodes.length === 0 ||
-      invitation.roleCodes.some((code) => code.length === 0)
-    ) {
+    if (!invitation.firstName || !invitation.lastName) {
       throw new InvalidInvitationError(
-        'Debes especificar al menos un código de rol válido.',
+        'El nombre y el apellido son obligatorios.',
       );
     }
 
-    if (new Set(invitation.roleCodes).size !== invitation.roleCodes.length) {
+    const hasRoleIds = invitation.roleIds.length > 0;
+    const hasRoleCodes = invitation.roleCodes.length > 0;
+
+    if (!hasRoleIds && !hasRoleCodes) {
       throw new InvalidInvitationError(
-        'La lista de roles no debe contener códigos duplicados.',
+        'Debes especificar al menos un rol (usando roleIds o roleCodes).',
+      );
+    }
+
+    if (hasRoleIds) {
+      if (invitation.roleIds.some((id) => !Number.isInteger(id) || id < 1)) {
+        throw new InvalidInvitationError(
+          'Todos los IDs de rol deben ser números enteros positivos.',
+        );
+      }
+
+      if (new Set(invitation.roleIds).size !== invitation.roleIds.length) {
+        throw new InvalidInvitationError(
+          'La lista de roleIds no debe contener identificadores duplicados.',
+        );
+      }
+
+      const foundRoles = await this.catalogRepository.findRolesByIds(
+        invitation.roleIds,
+      );
+      const foundIdMap = new Map(foundRoles.map((r) => [r.id, r]));
+
+      const missingRoleIds = invitation.roleIds.filter(
+        (id) => !foundIdMap.has(id),
+      );
+      if (missingRoleIds.length > 0) {
+        throw new InvitationRoleIdsNotFoundError(missingRoleIds);
+      }
+
+      invitation.roleCodes = foundRoles.map((r) => r.code);
+    } else {
+      if (invitation.roleCodes.some((code) => code.length === 0)) {
+        throw new InvalidInvitationError(
+          'Debes especificar al menos un código de rol válido.',
+        );
+      }
+
+      if (new Set(invitation.roleCodes).size !== invitation.roleCodes.length) {
+        throw new InvalidInvitationError(
+          'La lista de roles no debe contener códigos duplicados.',
+        );
+      }
+
+      const foundRoles = await this.catalogRepository.findRolesByCodes(
+        invitation.roleCodes,
+      );
+      const foundCodeMap = new Map(foundRoles.map((r) => [r.code, r]));
+
+      const missingRoleCodes = invitation.roleCodes.filter(
+        (code) => !foundCodeMap.has(code),
+      );
+      if (missingRoleCodes.length > 0) {
+        throw new InvitationRolesNotFoundError(missingRoleCodes);
+      }
+
+      invitation.roleIds = foundRoles.map((r) => r.id);
+    }
+
+    if (
+      new Set(invitation.activityIds).size !== invitation.activityIds.length
+    ) {
+      throw new InvalidInvitationError(
+        'La lista de actividades no debe contener IDs duplicados.',
+      );
+    }
+
+    if (invitation.activityIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+      throw new InvalidInvitationError(
+        'Cada ID de actividad debe ser un entero positivo.',
       );
     }
 
@@ -54,15 +123,18 @@ export class InvitationLogic implements InvitationLogicI {
       );
     }
 
+    const hasActivities =
+      invitation.activityIds.length > 0 || invitation.activityCodes.length > 0;
+
     const isActivityLeader = invitation.roleCodes.includes(
       LIDER_ACTIVIDAD_ROLE_CODE,
     );
 
-    if (!isActivityLeader && invitation.activityCodes.length > 0) {
+    if (!isActivityLeader && hasActivities) {
       throw new InvalidInvitationActivitiesRoleError();
     }
 
-    if (isActivityLeader && invitation.activityCodes.length === 0) {
+    if (isActivityLeader && !hasActivities) {
       throw new LeaderInvitationRequiresActivitiesError();
     }
 
@@ -81,17 +153,36 @@ export class InvitationLogic implements InvitationLogicI {
       throw new InvitationDepartmentNotFoundError(invitation.departmentId);
     }
 
-    const existingRoleCodes =
-      await this.catalogRepository.findExistingRoleCodes(invitation.roleCodes);
-    const existingRoleSet = new Set(existingRoleCodes);
-    const missingRoleCodes = invitation.roleCodes.filter(
-      (code) => !existingRoleSet.has(code),
-    );
-    if (missingRoleCodes.length > 0) {
-      throw new InvitationRolesNotFoundError(missingRoleCodes);
-    }
+    if (invitation.activityIds.length > 0) {
+      const existingActivities =
+        await this.catalogRepository.findActivitiesByIds(
+          invitation.activityIds,
+        );
+      const activityById = new Map(
+        existingActivities.map((item) => [item.id, item]),
+      );
 
-    if (invitation.activityCodes.length > 0) {
+      const missingActivityIds = invitation.activityIds.filter(
+        (id) => !activityById.has(id),
+      );
+      if (missingActivityIds.length > 0) {
+        throw new InvitationActivitiesNotFoundError(
+          missingActivityIds.map(String),
+        );
+      }
+
+      const conflicts = existingActivities
+        .filter((item) => item.leaderId !== null)
+        .map((item) => ({
+          activityCode: item.code,
+          currentLeaderId: item.leaderId as string,
+          currentLeaderEmail: item.leaderEmail ?? null,
+        }));
+
+      if (conflicts.length > 0) {
+        throw new InvitationActivityAlreadyHasLeaderError(conflicts);
+      }
+    } else if (invitation.activityCodes.length > 0) {
       const existingActivities =
         await this.catalogRepository.findActivitiesByCodes(
           invitation.activityCodes,
@@ -118,6 +209,8 @@ export class InvitationLogic implements InvitationLogicI {
       if (conflicts.length > 0) {
         throw new InvitationActivityAlreadyHasLeaderError(conflicts);
       }
+
+      invitation.activityIds = existingActivities.map((item) => item.id);
     }
 
     await this.invitationRepository.sendClerkInvitation(invitation);

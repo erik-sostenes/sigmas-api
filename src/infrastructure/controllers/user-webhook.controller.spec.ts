@@ -63,6 +63,8 @@ describe('UserWebhookClerkController + UserLogic', () => {
       type: 'user.created',
       data: {
         id: 'user_clerk_abc',
+        first_name: 'Hector',
+        last_name: 'Ramirez Olvera',
         email_addresses: [{ id: 'idn_1', email_address: 'lider@itsoeh.edu.mx' }],
         public_metadata: {
           departmentId: 4,
@@ -79,10 +81,43 @@ describe('UserWebhookClerkController + UserLogic', () => {
     expect(saveUserMock).toHaveBeenCalledTimes(1);
     const savedUser = saveUserMock.mock.calls[0]?.[0];
     expect(savedUser?.clerkId).toBe('user_clerk_abc');
+    expect(savedUser?.firstName).toBe('Hector');
+    expect(savedUser?.lastName).toBe('Ramirez Olvera');
     expect(savedUser?.email).toBe('lider@itsoeh.edu.mx');
     expect(savedUser?.departmentId).toBe(4);
     expect(savedUser?.roleCodes).toEqual(['solicitante', 'lider_actividad']);
     expect(savedUser?.activityCodes).toEqual(['C2A1']);
+  });
+
+  it('procesa user.created únicamente con roleIds y activityIds (sin roleCodes ni activityCodes)', async () => {
+    const { headers, req } = buildSignedRequest({
+      type: 'user.created',
+      data: {
+        id: 'user_clerk_num_only',
+        first_name: 'Juan',
+        last_name: 'Perez Lopez',
+        email_addresses: [{ id: 'idn_2', email_address: 'solo_ids@itsoeh.edu.mx' }],
+        public_metadata: {
+          departmentId: 5,
+          title: 'Coordinador',
+          roleIds: [2],
+          activityIds: [15],
+        },
+      },
+    });
+
+    const response = await controller.handleuserClerkWebhook(headers, req);
+
+    expect(response).toEqual({ success: true });
+    expect(saveUserMock).toHaveBeenCalledTimes(1);
+    const savedUser = saveUserMock.mock.calls[0]?.[0];
+    expect(savedUser?.clerkId).toBe('user_clerk_num_only');
+    expect(savedUser?.firstName).toBe('Juan');
+    expect(savedUser?.lastName).toBe('Perez Lopez');
+    expect(savedUser?.roleIds).toEqual([2]);
+    expect(savedUser?.roleCodes).toEqual([]);
+    expect(savedUser?.activityIds).toEqual([15]);
+    expect(savedUser?.activityCodes).toEqual([]);
   });
 
   it('rechaza firma de Svix inválida con BadRequestException', async () => {
@@ -103,6 +138,8 @@ describe('UserWebhookClerkController + UserLogic', () => {
       type: 'user.created',
       data: {
         id: 'user_clerk_abc',
+        first_name: 'Ana',
+        last_name: 'Gomez',
         email_addresses: [{ email_address: 'solicitante@itsoeh.edu.mx' }],
         public_metadata: {
           departmentId: 1,
@@ -121,6 +158,8 @@ describe('UserWebhookClerkController + UserLogic', () => {
       type: 'user.created',
       data: {
         id: 'user_clerk_abc',
+        first_name: 'Ana',
+        last_name: 'Gomez',
         email_addresses: [{ email_address: 'lider@itsoeh.edu.mx' }],
         public_metadata: {
           departmentId: 1,
@@ -152,6 +191,8 @@ describe('UserWebhookClerkController + UserLogic', () => {
       type: 'user.created',
       data: {
         id: 'user_clerk_abc',
+        first_name: 'Ana',
+        last_name: 'Gomez',
         email_addresses: [{ email_address: 'lider@itsoeh.edu.mx' }],
         public_metadata: {
           departmentId: 1,
@@ -175,6 +216,8 @@ describe('UserWebhookClerkController + UserLogic', () => {
       type: 'user.created',
       data: {
         id: 'user_clerk_abc',
+        first_name: 'Ana',
+        last_name: 'Gomez',
         email_addresses: [{ email_address: 'sinrol@itsoeh.edu.mx' }],
         public_metadata: {
           departmentId: 1,

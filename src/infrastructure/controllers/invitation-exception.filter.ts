@@ -12,6 +12,7 @@ import {
   InvitationActivitiesNotFoundError,
   InvitationActivityAlreadyHasLeaderError,
   InvitationDepartmentNotFoundError,
+  InvitationRoleIdsNotFoundError,
   InvitationRolesNotFoundError,
   InvitationUserAlreadyExistsError,
   LeaderInvitationRequiresActivitiesError,
@@ -21,6 +22,7 @@ import {
   InvalidInvitationError,
   InvitationUserAlreadyExistsError,
   InvitationDepartmentNotFoundError,
+  InvitationRoleIdsNotFoundError,
   InvitationRolesNotFoundError,
   InvitationActivitiesNotFoundError,
   InvalidInvitationActivitiesRoleError,
@@ -43,6 +45,7 @@ export class InvitationExceptionFilter implements ExceptionFilter {
       status = HttpStatus.CONFLICT;
     } else if (
       error instanceof InvitationDepartmentNotFoundError ||
+      error instanceof InvitationRoleIdsNotFoundError ||
       error instanceof InvitationRolesNotFoundError ||
       error instanceof InvitationActivitiesNotFoundError ||
       error instanceof InvalidInvitationActivitiesRoleError ||

@@ -17,7 +17,7 @@ Este documento describe el contrato entre el frontend (`sigmas`) y el backend (`
    | `admin` | Administrador | `false` |
 2. **Múltiples roles por usuario**: un usuario puede tener uno o más roles en `user_roles` (por ejemplo, `["solicitante"]` para un solicitante que no es líder, o `["solicitante", "lider_actividad"]` para un solicitante que además es líder de actividad).
 3. **Asignación de actividades**:
-   - Una actividad (`activities`) **solo puede tener un líder** (`leader_id`), pero un mismo líder puede ser responsable de varias actividades.
+   - Una actividad (`activities`) **solo puede tener un líder** (gestionado en la tabla asociativa `user_activities`), pero un mismo líder puede ser responsable de varias actividades. Para los componentes, la asignación se gestiona en `user_components` (un usuario puede ser líder de máximo un componente y cada componente solo tiene un líder).
    - **Solo** se permite enviar `activityCodes` cuando `roleCodes` incluye `"lider_actividad"`.
    - Si `roleCodes` incluye `"lider_actividad"`, es obligatorio seleccionar **al menos una** actividad (`activityCodes.length >= 1`).
    - Si `roleCodes` **no** incluye `"lider_actividad"` (p. ej. un solicitante normal), `activityCodes` debe omitirse o enviarse vacío (`[]`).
@@ -123,8 +123,8 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
 ```
 > **Recomendación para el Frontend**:
 > - Mostrar `departments` en un `<Select>` enviando `department.id` como `departmentId`.
-> - Mostrar `roles` como lista de checkboxes enviando `role.code` dentro de `roleCodes`.
-> - Mostrar el selector de actividades agrupado por `components` **solo cuando** el checkbox con `code === "lider_actividad"` (`requiresActivities: true`) esté marcado.
+> - Mostrar `roles` como lista de checkboxes enviando `role.id` dentro de `roleIds` (también se soporta `roleCodes`).
+> - Mostrar el selector de actividades agrupado por `components` **solo cuando** alguno de los roles seleccionados tenga `requiresActivities: true` (`lider_actividad`).
 > - Deshabilitar en la UI las actividades donde `currentLeader !== null` mostrando qué líder las tiene asignadas (`currentLeader.email`).
 
 ---
@@ -133,14 +133,17 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
 
 - **Método y ruta**: `POST /api/v1/invitations`
 - **Autenticación y autorización**: `Authorization: Bearer <clerk_session_token>` (solo rol `admin`).
+- **Acepta**: `roleIds: number[]` (recomendado por Front) o `roleCodes: string[]`.
 
 #### Ejemplo A: Invitar a un solicitante que NO es líder de actividad
 ```json
 {
   "email": "ana.torres@itsoeh.edu.mx",
+  "firstName": "Ana",
+  "lastName": "Torres",
   "departmentId": 3,
   "title": "Mtra.",
-  "roleCodes": ["solicitante"]
+  "roleIds": [1]
 }
 ```
 
@@ -148,12 +151,16 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
 ```json
 {
   "email": "bernardo.angeles@itsoeh.edu.mx",
+  "firstName": "Bernardo",
+  "lastName": "Ángeles Cruz",
   "departmentId": 11,
   "title": "Ing.",
-  "roleCodes": ["solicitante", "lider_actividad"],
-  "activityCodes": ["C1A1", "C4A1"]
+  "roleIds": [1, 2],
+  "activityIds": [10, 15]
 }
 ```
+
+*(Nota: para mantener el JWT lo más ligero posible, el backend guarda en el `publicMetadata` de Clerk únicamente los IDs numéricos `roleIds` y `activityIds`, omitiendo las cadenas repetitivas `roleCodes` y `activityCodes`).*
 
 #### Respuesta exitosa (`201 Created`)
 ```json
@@ -165,15 +172,15 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
 #### Códigos de error posibles en `POST /api/v1/invitations`
 | Código HTTP | `error` | Cuándo ocurre |
 |---|---|---|
-| `400 Bad Request` | `BadRequestException` / `InvalidInvitationError` | Formato inválido en correo, `departmentId`, `title`, arreglos vacíos o códigos duplicados. |
+| `400 Bad Request` | `BadRequestException` / `InvalidInvitationError` | Formato inválido en correo, `departmentId`, `title`, arreglos vacíos o IDs/códigos duplicados. |
 | `401 Unauthorized` | `UnauthorizedException` | Falta token Bearer o el token de Clerk expiró / no es válido. |
 | `403 Forbidden` | `ForbiddenException` | El usuario autenticado no tiene el rol `admin`. |
 | `409 Conflict` | `InvitationUserAlreadyExistsError` | Ya existe un usuario en MariaDB con ese `email`. |
 | `409 Conflict` | `InvitationActivityAlreadyHasLeaderError` | Alguna actividad en `activityCodes` ya tiene un líder asignado. |
-| `422 Unprocessable Entity` | `InvalidInvitationActivitiesRoleError` | Se enviaron `activityCodes` sin incluir `"lider_actividad"` en `roleCodes`. |
+| `422 Unprocessable Entity` | `InvalidInvitationActivitiesRoleError` | Se enviaron `activityCodes` sin incluir `"lider_actividad"` (ID correspondiente). |
 | `422 Unprocessable Entity` | `LeaderInvitationRequiresActivitiesError` | Se incluyó `"lider_actividad"` pero `activityCodes` está vacío. |
 | `422 Unprocessable Entity` | `InvitationDepartmentNotFoundError` | `departmentId` no existe o está inactivo. |
-| `422 Unprocessable Entity` | `InvitationRolesNotFoundError` | Algún código en `roleCodes` no existe en la tabla `roles`. |
+| `422 Unprocessable Entity` | `InvitationRoleIdsNotFoundError` / `InvitationRolesNotFoundError` | Algún ID en `roleIds` o código en `roleCodes` no existe en la tabla `roles`. |
 | `422 Unprocessable Entity` | `InvitationActivitiesNotFoundError` | Algún código en `activityCodes` no existe en la tabla `activities`. |
 | `502 Bad Gateway` | `ClerkInvitationError` | Clerk rechazó o falló al crear la invitación. |
 
@@ -186,23 +193,88 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
 - **Metadatos esperados en `data.public_metadata`**:
   ```json
   {
+    "firstName": "Bernardo",
+    "lastName": "Ángeles Cruz",
     "departmentId": 11,
     "title": "Ing.",
-    "roleCodes": ["solicitante", "lider_actividad"],
-    "activityCodes": ["C1A1", "C4A1"]
+    "roleIds": [1, 2],
+    "activityIds": [10, 15]
   }
   ```
 - **Comportamiento transaccional e idempotencia**:
   - Todo ocurre dentro de una transacción con bloqueo de filas (`FOR UPDATE`).
-  - Si Clerk reintenta el mismo evento `user.created` para el mismo `clerk_id`, el backend actualiza los datos básicos del usuario, mantiene sus roles en `user_roles` (`INSERT IGNORE` aditivo, sin borrar otros roles previos) y conserva sus actividades sin arrojar conflicto consigo mismo.
+  - Si Clerk reintenta el mismo evento `user.created` para el mismo `clerk_id`, el backend actualiza los datos básicos del usuario, mantiene sus roles en `user_roles` (`INSERT IGNORE` aditivo, sin borrar otros roles previos) y conserva sus actividades en `user_activities` sin arrojar conflicto consigo mismo.
   - Si entre el envío de la invitación y la aceptación otra persona fue asignada como líder de una de las actividades, la transacción hace `rollback` completo y responde `409 Conflict` (`ActivityAlreadyHasLeaderError`).
 
 #### Cómo resolver una invitación que entra en conflicto (`409 Conflict`)
-1. Si la actividad sigue ocupada por un usuario `placeholder_%` de pruebas, en desarrollo puedes liberar los líderes placeholder con `db/dev/release-placeholder-leaders.sql` o liberar la actividad específica:
+1. Si la actividad está ocupada y deseas liberarla para reasignarla:
    ```sql
-   UPDATE activities SET leader_id = NULL WHERE code = 'C1A1';
+   DELETE FROM user_activities WHERE activity_id = 10;
    ```
 2. Una vez liberada la actividad en MariaDB, ve al **Clerk Dashboard -> Webhooks -> Endpoints -> tu endpoint**, localiza el evento `user.created` fallido y haz clic en **Replay** (o espera el siguiente reintento automático de Svix).
+
+---
+
+### 2.4 Catálogo de roles para usuarios autenticados (`GET /api/v1/roles`)
+
+Permite a cualquier usuario autenticado en la plataforma consultar el catálogo de roles para resolver los `roleIds` extraídos del token JWT (por ejemplo usando la librería `jose`).
+
+- **Método y ruta**: `GET /api/v1/roles`
+- **Autenticación**: `Authorization: Bearer <clerk_session_token>` (disponible para cualquier usuario con sesión activa en Clerk).
+
+#### Ejemplo de extracción en Frontend con `jose`:
+```typescript
+import { decodeJwt } from 'jose';
+
+const token = await getToken();
+const claims = decodeJwt(token);
+
+// Extrae los IDs numéricos:
+const roleIds = claims.metadata?.roleIds;         // [1, 2]
+const activityIds = claims.metadata?.activityIds; // [10]
+```
+
+#### Respuesta de `GET /api/v1/roles` (`200 OK`):
+```json
+[
+  {
+    "id": 1,
+    "code": "solicitante",
+    "name": "Solicitante",
+    "requiresActivities": false
+  },
+  {
+    "id": 2,
+    "code": "lider_actividad",
+    "name": "Líder de actividad",
+    "requiresActivities": true
+  },
+  {
+    "id": 3,
+    "code": "lider_componente",
+    "name": "Líder de componente",
+    "requiresActivities": false
+  },
+  {
+    "id": 4,
+    "code": "recursos_materiales",
+    "name": "Recursos materiales y servicios",
+    "requiresActivities": false
+  },
+  {
+    "id": 5,
+    "code": "servicios_administrativos",
+    "name": "Servicios administrativos",
+    "requiresActivities": false
+  },
+  {
+    "id": 6,
+    "code": "admin",
+    "name": "Administrador",
+    "requiresActivities": false
+  }
+]
+```
 
 ---
 

@@ -50,240 +50,100 @@ INSERT INTO funding_sources (code, name) VALUES
     ('25', 'Recurso Federal');
 
 -- ------------------------------------------------------------
--- users
--- Orden: primero los líderes de componentes para que sus IDs
--- queden disponibles al insertar components/activities.
--- clerk_id usa placeholder; actualizar con el ID real de Clerk.
--- ------------------------------------------------------------
-INSERT INTO users (clerk_id, department_id, title, email) VALUES
--- Líder de componente
-('placeholder_ebecerra',
-    (SELECT id FROM departments WHERE name = 'INVESTIGACIÓN Y POSGRADO'),
-    'Dr.', 'ebecerra@placeholder.edu.mx'),
-
--- Solicitantes
-('placeholder_jdominguez',
-    (SELECT id FROM departments WHERE name = 'DIRECCIÓN GENERAL'),
-    'Mtro.', 'jdominguez@placeholder.edu.mx'),
-
-('placeholder_crojo',
-    (SELECT id FROM departments WHERE name = 'RESIDENCIAS PROFESIONALES Y SERVICIO SOCIAL'),
-    'C.P.', 'crojo@placeholder.edu.mx'),
-
-('placeholder_alopez',
-    (SELECT id FROM departments WHERE name = 'INVESTIGACIÓN Y POSGRADO'),
-    'Mtro.', 'alopez@placeholder.edu.mx'),
-
-('placeholder_kgonzalez',
-    (SELECT id FROM departments WHERE name = 'DIFUSIÓN, CULTURA Y DEPORTE'),
-    'Mtra.', 'kgonzalez@placeholder.edu.mx'),
-
-('placeholder_flugo',
-    (SELECT id FROM departments WHERE name = 'CIENCIAS BÁSICAS'),
-    'Ing.', 'flugo@placeholder.edu.mx'),
-
-('placeholder_bsanchez',
-    (SELECT id FROM departments WHERE name = 'DESARROLLO ACADÉMICO'),
-    'Lic.', 'bsanchez@placeholder.edu.mx'),
-
-('placeholder_rmontoya',
-    (SELECT id FROM departments WHERE name = 'CONTROL ESCOLAR'),
-    'Lic.', 'rmontoya@placeholder.edu.mx'),
-
-('placeholder_jcornejo',
-    (SELECT id FROM departments WHERE name = 'INGENIERÍA EN TECNOLOGÍAS DE LA INFORMACIÓN Y COMUNICACIONES'),
-    'Lic.', 'jcornejo@placeholder.edu.mx'),
-
-('placeholder_ahernandez',
-    (SELECT id FROM departments WHERE name = 'PLANEACIÓN Y VINCULACIÓN'),
-    'Mtro.', 'ahernandez@placeholder.edu.mx'),
-
-('placeholder_mordonez',
-    (SELECT id FROM departments WHERE name = 'VINCULACIÓN'),
-    'Lic.', 'mordonez@placeholder.edu.mx'),
-
-('placeholder_bangeles',
-    (SELECT id FROM departments WHERE name = 'PLANEACIÓN'),
-    'Ing.', 'bangeles@placeholder.edu.mx'),
-
-('placeholder_ameza',
-    (SELECT id FROM departments WHERE name = 'SERVICIOS ADMINISTRATIVOS'),
-    'Lic.', 'ameza@placeholder.edu.mx'),
-
-('placeholder_yrodriguez',
-    (SELECT id FROM departments WHERE name = 'DESARROLLO DE PERSONAL'),
-    'Mtra.', 'yrodriguez@placeholder.edu.mx'),
-
-('placeholder_nramirez',
-    (SELECT id FROM departments WHERE name = 'RECURSOS MATERIALES Y SERVICIOS'),
-    'Ing.', 'nramirez@placeholder.edu.mx'),
-
-('placeholder_aquintero',
-    (SELECT id FROM departments WHERE name = 'INGENIERÍA INDUSTRIAL'),
-    'Ing.', 'aquintero@placeholder.edu.mx'),
-
-('placeholder_egomez',
-    (SELECT id FROM departments WHERE name = 'INGENIERÍA EN INDUSTRIAS ALIMENTARIAS'),
-    'Dr.', 'egomez@placeholder.edu.mx'),
-
-('placeholder_mgarcia',
-    (SELECT id FROM departments WHERE name = 'INGENIERÍA ELECTROMECANICA'),
-    'Ing.', 'mgarcia@placeholder.edu.mx'),
-
-('placeholder_rporras',
-    (SELECT id FROM departments WHERE name = 'SUBDIRECCIÓN ACADÉMICA'),
-    'Mtro.', 'rporras@placeholder.edu.mx'),
-
-('placeholder_ebarrera',
-    (SELECT id FROM departments WHERE name = 'INGENIERÍA EN GESTIÓN EMPRESARIAL'),
-    'Mtra.', 'ebarrera@placeholder.edu.mx'),
-
-('placeholder_vmartinez',
-    (SELECT id FROM departments WHERE name = 'ARQUITECTURA'),
-    'Arq.', 'vmartinez@placeholder.edu.mx'),
-
-('placeholder_malvarez',
-    (SELECT id FROM departments WHERE name = 'INGENIERÍA EN LOGISTICA'),
-    'Mtro.', 'malvarez@placeholder.edu.mx'),
-
-('placeholder_kjperez',
-    (SELECT id FROM departments WHERE name = 'INVESTIGACIÓN Y POSGRADO'),
-    'Dra.', 'kjperez@placeholder.edu.mx'),
-
-('placeholder_camartinez',
-    (SELECT id FROM departments WHERE name = 'INGENIERÍA EN SISTEMAS COMPUTACIONALES'),
-    'Mtra.', 'camartinez@placeholder.edu.mx');-- ------------------------------------------------------------
-
 -- components
--- administrative_unit_id mapeado al componente según dominio:
---   C1 → 1000 Dirección Académica
---   C2 → 2000 Dirección de Planeación y Vinculación
---   C3 → 3000 Subdirección de Posgrado e Investigación
---   C4 → 4000 Subdirección de Planeación
---   C5 → 5000 Subdirección de Servicios Administrativos
--- TODO: checar si quedo bien asociado el lider con la actividad
 -- ------------------------------------------------------------
-INSERT INTO components (code, name, administrative_unit_id, leader_id) VALUES
+INSERT INTO components (code, name, administrative_unit_id) VALUES
     ('C1', 'ESTUDIANTES DEL NIVEL SUPERIOR DE EDUCACIÓN EN INSTITUCIONES PÚBLICAS FORMADOS',
-        (SELECT id FROM administrative_units WHERE code = '1000'),
-        (SELECT id FROM users WHERE email = 'jdominguez@placeholder.edu.mx')),
+        (SELECT id FROM administrative_units WHERE code = '1000')),
 
     ('C2', 'SERVICIOS DE EXTENSIÓN Y VINCULACIÓN DE EDUCACIÓN SUPERIOR OTORGADOS',
-        (SELECT id FROM administrative_units WHERE code = '2000'),
-        (SELECT id FROM users WHERE email = 'ahernandez@placeholder.edu.mx')),
+        (SELECT id FROM administrative_units WHERE code = '2000')),
 
     ('C3', 'INVESTIGACIÓN CIENTÍFICA, TECNOLÓGICA Y EDUCATIVA DESARROLLADA',
-        (SELECT id FROM administrative_units WHERE code = '3000'),
-        (SELECT id FROM users WHERE email = 'ebecerra@placeholder.edu.mx')),
+        (SELECT id FROM administrative_units WHERE code = '3000')),
 
     ('C4', 'INSTRUMENTOS DE PLANEACIÓN ESTRATÉGICA EVALUADOS',
-        (SELECT id FROM administrative_units WHERE code = '4000'),
-        (SELECT id FROM users WHERE email = 'bangeles@placeholder.edu.mx')),
+        (SELECT id FROM administrative_units WHERE code = '4000')),
 
     ('C5', 'NECESIDADES DE LA COMUNIDAD EDUCATIVA DE LAS INSTITUCIONES DE EDUCACIÓN SUPERIOR ATENDIDAS',
-        (SELECT id FROM administrative_units WHERE code = '5000'),
-        (SELECT id FROM users WHERE email = 'ameza@placeholder.edu.mx'));-- ------------------------------------------------------------
+        (SELECT id FROM administrative_units WHERE code = '5000'));
+
+-- ------------------------------------------------------------
 
 -- activities
 -- NOTE: 23 actividades mapeadas (8 de C1, 4 de C2, 2 de C3, 3 de C4, 5 de C5).
--- WARNING: C2A2 y C2A3 tienen el mismo líder (Karen González, kgonzalez) — así estaba en tu original, solo lo señalo por si esperabas que fueran distintos.
--- WARNING: C3A1 y C3A2 tienen el mismo líder (Eduardo Becerra, ebecerra) — igual, consistente con tu original.
--- WARNING: C4A1 y C4A3 tienen el mismo líder (Bernardo Ángeles, bangeles) — consistente.
--- WARNING: C5A2 comparte líder con C2A1 (Ángel Hernández, ahernandez) — consistente.
 -- ------------------------------------------------------------
-INSERT INTO activities (component_id, code, name, leader_id) VALUES
+INSERT INTO activities (component_id, code, name) VALUES
     -- C1
     ((SELECT id FROM components WHERE code = 'C1'), 'C1A1',
-        'SEGUIMIENTO AL PROCESO DE SERVICIO SOCIAL, RESIDENCIAS O ESTADÍAS PROFESIONALES E INTERNADO DE PREGRADO DEL ESTUDIANTADO',
-        (SELECT id FROM users WHERE email = 'crojo@placeholder.edu.mx')),
+        'SEGUIMIENTO AL PROCESO DE SERVICIO SOCIAL, RESIDENCIAS O ESTADÍAS PROFESIONALES E INTERNADO DE PREGRADO DEL ESTUDIANTADO'),
 
     ((SELECT id FROM components WHERE code = 'C1'), 'C1A2',
-        'ELABORACIÓN DE ESTUDIOS DE PERTINENCIA Y FACTIBILIDAD DE LA OFERTA EDUCATIVA DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'alopez@placeholder.edu.mx')),
+        'ELABORACIÓN DE ESTUDIOS DE PERTINENCIA Y FACTIBILIDAD DE LA OFERTA EDUCATIVA DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C1'), 'C1A3',
-        'EVALUACIÓN ACADÉMICA AL ESTUDIANTADO DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'jdominguez@placeholder.edu.mx')),
+        'EVALUACIÓN ACADÉMICA AL ESTUDIANTADO DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C1'), 'C1A4',
-        'IMPARTICIÓN DE ACTIVIDADES EXTRACURRICULARES EN EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'kgonzalez@placeholder.edu.mx')),
+        'IMPARTICIÓN DE ACTIVIDADES EXTRACURRICULARES EN EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C1'), 'C1A5',
-        'ATENCIÓN COMPENSATORIA A ESTUDIANTES DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'flugo@placeholder.edu.mx')),
+        'ATENCIÓN COMPENSATORIA A ESTUDIANTES DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C1'), 'C1A6',
-        'CAPACITACIÓN DEL PERSONAL DOCENTE DE INSTITUCIONES DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'bsanchez@placeholder.edu.mx')),
+        'CAPACITACIÓN DEL PERSONAL DOCENTE DE INSTITUCIONES DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C1'), 'C1A7',
-        'OTORGAMIENTO DE BECAS INSTITUCIONALES A ESTUDIANTES DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'rmontoya@placeholder.edu.mx')),
+        'OTORGAMIENTO DE BECAS INSTITUCIONALES A ESTUDIANTES DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C1'), 'C1A8',
-        'DISTRIBUCIÓN DE MATERIAL DIDÁCTICO A DOCENTES DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'jcornejo@placeholder.edu.mx')),
+        'DISTRIBUCIÓN DE MATERIAL DIDÁCTICO A DOCENTES DE EDUCACIÓN SUPERIOR'),
 
     -- C2
     ((SELECT id FROM components WHERE code = 'C2'), 'C2A1',
-        'OTORGAMIENTO DE SERVICIOS DE EDUCACIÓN CONTINUA Y TECNOLÓGICOS DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'ahernandez@placeholder.edu.mx')),
+        'OTORGAMIENTO DE SERVICIOS DE EDUCACIÓN CONTINUA Y TECNOLÓGICOS DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C2'), 'C2A2',
-        'DIFUSIÓN INSTITUCIONAL DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'kgonzalez@placeholder.edu.mx')),
+        'DIFUSIÓN INSTITUCIONAL DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C2'), 'C2A3',
-        'OTORGAMIENTO DE ORIENTACIÓN PROFESIOGRÁFICA PARA LA EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'kgonzalez@placeholder.edu.mx')),
+        'OTORGAMIENTO DE ORIENTACIÓN PROFESIOGRÁFICA PARA LA EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C2'), 'C2A4',
-        'FIRMA DE CONVENIOS DE COLABORACIÓN EN EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'mordonez@placeholder.edu.mx')),
+        'FIRMA DE CONVENIOS DE COLABORACIÓN EN EDUCACIÓN SUPERIOR'),
 
     -- C3
     ((SELECT id FROM components WHERE code = 'C3'), 'C3A1',
-        'SELECCIÓN DE PROYECTOS DE INVESTIGACIÓN CIENTÍFICA Y TECNOLÓGICA DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'ebecerra@placeholder.edu.mx')),
+        'SELECCIÓN DE PROYECTOS DE INVESTIGACIÓN CIENTÍFICA Y TECNOLÓGICA DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C3'), 'C3A2',
-        'DIVULGACIÓN DE INVESTIGACIÓN CIENTÍFICA Y TECNOLÓGICA DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'ebecerra@placeholder.edu.mx')),
+        'DIVULGACIÓN DE INVESTIGACIÓN CIENTÍFICA Y TECNOLÓGICA DE EDUCACIÓN SUPERIOR'),
 
     -- C4
     ((SELECT id FROM components WHERE code = 'C4'), 'C4A1',
-        'APLICACIÓN DE EVALUACIONES INSTITUCIONALES A LOS PROGRAMAS EDUCATIVOS',
-        (SELECT id FROM users WHERE email = 'bangeles@placeholder.edu.mx')),
+        'APLICACIÓN DE EVALUACIONES INSTITUCIONALES A LOS PROGRAMAS EDUCATIVOS'),
 
     ((SELECT id FROM components WHERE code = 'C4'), 'C4A2',
-        'EVALUACIÓN A DOCENTES DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'bsanchez@placeholder.edu.mx')),
+        'EVALUACIÓN A DOCENTES DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C4'), 'C4A3',
-        'ACTUALIZACIÓN DE MÓDULOS DE SISTEMAS DE INFORMACIÓN EN LA INSTITUCIÓN EDUCATIVA',
-        (SELECT id FROM users WHERE email = 'bangeles@placeholder.edu.mx')),
+        'ACTUALIZACIÓN DE MÓDULOS DE SISTEMAS DE INFORMACIÓN EN LA INSTITUCIÓN EDUCATIVA'),
 
     -- C5
     ((SELECT id FROM components WHERE code = 'C5'), 'C5A1',
-        'CAPACITACIÓN A PERSONAL ADMINISTRATIVO DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'yrodriguez@placeholder.edu.mx')),
+        'CAPACITACIÓN A PERSONAL ADMINISTRATIVO DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C5'), 'C5A2',
-        'UTILIZACIÓN DE LA CAPACIDAD FÍSICA INSTALADA PARA LAS ACTIVIDADES ACADÉMICAS EN INSTITUCIONES DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'ahernandez@placeholder.edu.mx')),
+        'UTILIZACIÓN DE LA CAPACIDAD FÍSICA INSTALADA PARA LAS ACTIVIDADES ACADÉMICAS EN INSTITUCIONES DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C5'), 'C5A3',
-        'MANTENIMIENTO A LA INFRAESTRUCTURA FÍSICA EDUCATIVA DE EDUCACIÓN SUPERIOR',
-        (SELECT id FROM users WHERE email = 'nramirez@placeholder.edu.mx')),
+        'MANTENIMIENTO A LA INFRAESTRUCTURA FÍSICA EDUCATIVA DE EDUCACIÓN SUPERIOR'),
 
     ((SELECT id FROM components WHERE code = 'C5'), 'C5A4',
-        'EJECUCIÓN DE PROYECTOS DE INVERSIÓN',
-        (SELECT id FROM users WHERE email = 'bangeles@placeholder.edu.mx')),
+        'EJECUCIÓN DE PROYECTOS DE INVERSIÓN'),
 
     ((SELECT id FROM components WHERE code = 'C5'), 'C5A5',
-        'ADMINISTRACIÓN DE RECAUDACIÓN DE INGRESOS PROPIOS',
-        (SELECT id FROM users WHERE email = 'ameza@placeholder.edu.mx'));
+        'ADMINISTRACIÓN DE RECAUDACIÓN DE INGRESOS PROPIOS');
 
 
 -- ------------------------------------------------------------
@@ -767,4 +627,16 @@ INSERT INTO roles (code, name) VALUES
     ('admin', 'Administrador')
 ON DUPLICATE KEY UPDATE
     name = VALUES(name);
+
+-- ------------------------------------------------------------
+-- isos
+-- ------------------------------------------------------------
+INSERT INTO isos (code, name) VALUES
+    ('ISO 9001:2015', 'Gestión de la Calidad'),
+    ('ISO 14001:2015', 'Gestión Ambiental'),
+    ('ISO 45001:2018', 'Gestión de la Seguridad y Salud en el Trabajo'),
+    ('ISO 50001:2018', 'Gestión de la Energía')
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name);
+
 

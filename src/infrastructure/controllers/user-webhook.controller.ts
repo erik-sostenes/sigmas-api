@@ -22,6 +22,8 @@ interface ClerkEmailAddressPayload {
 
 interface ClerkUserCreatedDataPayload {
   id?: string;
+  first_name?: string | null;
+  last_name?: string | null;
   primary_email_address_id?: string;
   email_addresses?: ClerkEmailAddressPayload[];
   public_metadata?: Record<string, unknown>;
@@ -82,7 +84,20 @@ export class UserWebhookClerkController {
     }
 
     const data = evt.data ?? {};
+    const metadata = data.public_metadata ?? {};
     const clerkId = typeof data.id === 'string' ? data.id.trim() : '';
+    const firstName =
+      typeof data.first_name === 'string' && data.first_name.trim().length > 0
+        ? data.first_name.trim()
+        : typeof metadata.firstName === 'string'
+          ? metadata.firstName.trim()
+          : '';
+    const lastName =
+      typeof data.last_name === 'string' && data.last_name.trim().length > 0
+        ? data.last_name.trim()
+        : typeof metadata.lastName === 'string'
+          ? metadata.lastName.trim()
+          : '';
     const primaryEmailObj =
       data.email_addresses?.find(
         (item) =>
@@ -94,41 +109,64 @@ export class UserWebhookClerkController {
         ? primaryEmailObj.email_address.trim()
         : '';
 
-    const metadata = data.public_metadata ?? {};
     const departmentId = Number(metadata.departmentId);
     const title =
       typeof metadata.title === 'string' && metadata.title.trim().length > 0
         ? metadata.title.trim()
         : null;
 
+    const roleIds = this.extractRoleIds(metadata);
     const roleCodes = this.extractRoleCodes(metadata);
+    const activityIds = this.extractActivityIds(metadata);
     const activityCodes = this.extractActivityCodes(metadata);
 
     if (
       !clerkId ||
+      !firstName ||
+      !lastName ||
       !email ||
       !Number.isInteger(departmentId) ||
       departmentId < 1 ||
-      roleCodes.length === 0
+      (roleCodes.length === 0 && roleIds.length === 0)
     ) {
       throw new InvalidUserAssignmentError(
-        'Faltan datos requeridos en el evento de Clerk (email, departmentId o roleCodes).',
+        'Faltan datos requeridos en el evento de Clerk (first_name, last_name, email, departmentId, roleIds o roleCodes).',
       );
     }
 
     const user = new User({
       clerkId,
+      firstName,
+      lastName,
       email,
       departmentId,
       title,
       isActive: true,
+      roleIds,
       roleCodes,
+      activityIds,
       activityCodes,
     });
 
     await this.userLogic.create(user);
 
     return { success: true };
+  }
+
+  private extractRoleIds(metadata: Record<string, unknown>): number[] {
+    if (Array.isArray(metadata.roleIds)) {
+      if (
+        !metadata.roleIds.every(
+          (item) => Number.isInteger(Number(item)) && Number(item) > 0,
+        )
+      ) {
+        throw new InvalidUserAssignmentError(
+          'El campo roleIds en public_metadata debe contener únicamente números enteros positivos.',
+        );
+      }
+      return metadata.roleIds.map((item) => Number(item));
+    }
+    return [];
   }
 
   private extractRoleCodes(metadata: Record<string, unknown>): string[] {
@@ -155,6 +193,28 @@ export class UserWebhookClerkController {
     }
 
     return [];
+  }
+
+  private extractActivityIds(metadata: Record<string, unknown>): number[] {
+    if (
+      metadata.activityIds === undefined ||
+      metadata.activityIds === null
+    ) {
+      return [];
+    }
+
+    if (
+      !Array.isArray(metadata.activityIds) ||
+      !metadata.activityIds.every(
+        (item) => Number.isInteger(Number(item)) && Number(item) > 0,
+      )
+    ) {
+      throw new InvalidUserAssignmentError(
+        'El campo activityIds en public_metadata debe ser un arreglo de números enteros positivos.',
+      );
+    }
+
+    return metadata.activityIds.map((item) => Number(item));
   }
 
   private extractActivityCodes(metadata: Record<string, unknown>): string[] {

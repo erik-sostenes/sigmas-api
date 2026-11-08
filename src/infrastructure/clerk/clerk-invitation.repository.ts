@@ -16,15 +16,22 @@ export class ClerkInvitationRepository implements InvitationRepositoryI {
     const redirectUrl =
       process.env.CLERK_INVITATION_REDIRECT_URL?.trim() || DEFAULT_REDIRECT_URL;
 
+    const publicMetadata: Record<string, unknown> = {
+      firstName: invitation.firstName,
+      lastName: invitation.lastName,
+      departmentId: invitation.departmentId,
+      title: invitation.title,
+      roleIds: invitation.roleIds,
+    };
+
+    if (invitation.activityIds && invitation.activityIds.length > 0) {
+      publicMetadata.activityIds = invitation.activityIds;
+    }
+
     try {
       await this.clerkClient.invitations.createInvitation({
         emailAddress: invitation.email,
-        publicMetadata: {
-          departmentId: invitation.departmentId,
-          title: invitation.title,
-          roleCodes: invitation.roleCodes,
-          activityCodes: invitation.activityCodes,
-        },
+        publicMetadata,
         redirectUrl,
       });
     } catch (error: any) {

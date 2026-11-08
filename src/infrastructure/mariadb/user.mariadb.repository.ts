@@ -5,6 +5,8 @@ import { User, UserId } from '../../business/user.model';
 import { isDuplicateEntry, isForeignKeyViolation } from './mariadb.errors';
 import {
   ActivityAlreadyHasLeaderError,
+  InvalidUserActivitiesRoleError,
+  LeaderUserRequiresActivitiesError,
   UserActivitiesNotFoundError,
   UserAlreadyExistsError,
   UserDepartmentNotFoundError,
@@ -12,12 +14,15 @@ import {
   UserNotCreatedError,
   UserRolesNotFoundError,
 } from '../../business/user.errors';
+import { LIDER_ACTIVIDAD_ROLE_CODE } from '../../business/user-assignment.model';
 
 type DatabaseUserRow = {
   id: string;
   clerk_id: string;
   department_id: number;
   title: string | null;
+  first_name: string;
+  last_name: string;
   email: string;
   is_active: boolean;
   created_at: Date;
@@ -45,7 +50,7 @@ export class UserMariaDBRepository
       const departmentRows = await conn.execute<{ id: number }[]>(
         `SELECT id
          FROM departments
-         WHERE id = ? AND is_active = TRUE
+         WHERE id = ?
          LIMIT 1`,
         [user.departmentId],
       );
@@ -54,33 +59,97 @@ export class UserMariaDBRepository
         throw new UserDepartmentNotFoundError(user.departmentId);
       }
 
-      const rolePlaceholders = this.placeholders(user.roleCodes);
-      const roleRows = await conn.execute<{ id: number; code: string }[]>(
-        `SELECT id, code
-         FROM roles
-         WHERE code IN (${rolePlaceholders})`,
-        user.roleCodes,
-      );
+      let roleRows: { id: number; code: string }[] = [];
+      if (user.roleCodes.length > 0) {
+        const rolePlaceholders = this.placeholders(user.roleCodes);
+        roleRows = await conn.execute<{ id: number; code: string }[]>(
+          `SELECT id, code
+           FROM roles
+           WHERE code IN (${rolePlaceholders})`,
+          user.roleCodes,
+        );
 
-      const roleIdByCode = new Map<string, number>();
-      for (const row of roleRows) {
-        roleIdByCode.set(row.code, Number(row.id));
+        const roleIdByCode = new Map<string, number>();
+        for (const row of roleRows) {
+          roleIdByCode.set(row.code, Number(row.id));
+        }
+
+        const missingRoleCodes = user.roleCodes.filter(
+          (code) => !roleIdByCode.has(code),
+        );
+        if (missingRoleCodes.length > 0) {
+          throw new UserRolesNotFoundError(missingRoleCodes);
+        }
+      } else if (user.roleIds.length > 0) {
+        const rolePlaceholders = this.placeholders(user.roleIds);
+        roleRows = await conn.execute<{ id: number; code: string }[]>(
+          `SELECT id, code
+           FROM roles
+           WHERE id IN (${rolePlaceholders})`,
+          user.roleIds,
+        );
+
+        const foundIdSet = new Set(roleRows.map((r) => Number(r.id)));
+        const missingRoleIds = user.roleIds.filter(
+          (id) => !foundIdSet.has(id),
+        );
+        if (missingRoleIds.length > 0) {
+          throw new UserRolesNotFoundError(missingRoleIds.map(String));
+        }
       }
 
-      const missingRoleCodes = user.roleCodes.filter(
-        (code) => !roleIdByCode.has(code),
+      const resolvedRoleCodes = roleRows.map((r) => r.code);
+      const isActivityLeader = resolvedRoleCodes.includes(
+        LIDER_ACTIVIDAD_ROLE_CODE,
       );
-      if (missingRoleCodes.length > 0) {
-        throw new UserRolesNotFoundError(missingRoleCodes);
+      const hasActivities =
+        user.activityIds.length > 0 || user.activityCodes.length > 0;
+
+      if (!isActivityLeader && hasActivities) {
+        throw new InvalidUserActivitiesRoleError();
+      }
+
+      if (isActivityLeader && !hasActivities) {
+        throw new LeaderUserRequiresActivitiesError();
       }
 
       let lockedActivities: LockedActivityRow[] = [];
-      if (user.activityCodes.length > 0) {
+      if (user.activityIds.length > 0) {
+        const activityPlaceholders = this.placeholders(user.activityIds);
+        lockedActivities = await conn.execute<LockedActivityRow[]>(
+          `SELECT
+             a.id,
+             a.code,
+             ua.user_id AS leader_id,
+             u.email AS leader_email
+           FROM activities a
+           LEFT JOIN user_activities ua ON ua.activity_id = a.id
+           LEFT JOIN users u ON u.id = ua.user_id
+           WHERE a.id IN (${activityPlaceholders})
+           FOR UPDATE`,
+          user.activityIds,
+        );
+
+        const foundActivityIds = new Set(
+          lockedActivities.map((row) => Number(row.id)),
+        );
+        const missingActivityIds = user.activityIds.filter(
+          (id) => !foundActivityIds.has(id),
+        );
+        if (missingActivityIds.length > 0) {
+          throw new UserActivitiesNotFoundError(missingActivityIds.map(String));
+        }
+      } else if (user.activityCodes.length > 0) {
         const activityPlaceholders = this.placeholders(user.activityCodes);
         lockedActivities = await conn.execute<LockedActivityRow[]>(
-          `SELECT a.id, a.code, a.leader_id, u.email AS leader_email
+          `SELECT
+             a.id,
+             a.code,
+             ua.user_id AS leader_id,
+             u.email AS leader_email
            FROM activities a
-           LEFT JOIN users u ON u.id = a.leader_id
+           LEFT JOIN user_activities ua ON ua.activity_id = a.id
+           LEFT JOIN users u ON u.id = ua.user_id
            WHERE a.code IN (${activityPlaceholders})
            FOR UPDATE`,
           user.activityCodes,
@@ -128,22 +197,34 @@ export class UserMariaDBRepository
           `UPDATE users
            SET department_id = ?,
                title = ?,
+               first_name = ?,
+               last_name = ?,
                email = ?,
                is_active = ?,
                updated_at = CURRENT_TIMESTAMP
            WHERE id = ?`,
-          [user.departmentId, user.title, user.email, user.isActive, userId],
+          [
+            user.departmentId,
+            user.title,
+            user.firstName,
+            user.lastName,
+            user.email,
+            user.isActive,
+            userId,
+          ],
         );
       } else {
         const insertedRows = await conn.execute<{ id: string }[]>(
           `INSERT INTO users
-             (clerk_id, department_id, title, email, is_active)
-           VALUES (?, ?, ?, ?, ?)
+             (clerk_id, department_id, title, first_name, last_name, email, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            RETURNING id`,
           [
             user.clerkId,
             user.departmentId,
             user.title,
+            user.firstName,
+            user.lastName,
             user.email,
             user.isActive,
           ],
@@ -169,25 +250,20 @@ export class UserMariaDBRepository
         }
       }
 
-      for (const roleCode of user.roleCodes) {
-        const roleId = roleIdByCode.get(roleCode);
-        if (roleId !== undefined) {
-          await conn.execute(
-            `INSERT IGNORE INTO user_roles (user_id, role_id)
-             VALUES (?, ?)`,
-            [userId, roleId],
-          );
-        }
+      for (const roleRow of roleRows) {
+        await conn.execute(
+          `INSERT IGNORE INTO user_roles (user_id, role_id)
+           VALUES (?, ?)`,
+          [userId, roleRow.id],
+        );
       }
 
-      if (user.activityCodes.length > 0) {
-        const activityPlaceholders = this.placeholders(user.activityCodes);
+      for (const activity of lockedActivities) {
         await conn.execute(
-          `UPDATE activities
-           SET leader_id = ?
-           WHERE code IN (${activityPlaceholders})
-             AND (leader_id IS NULL OR leader_id = ?)`,
-          [userId, ...user.activityCodes, userId],
+          `INSERT INTO user_activities (user_id, activity_id)
+           VALUES (?, ?)
+           ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
+          [userId, activity.id],
         );
       }
 
@@ -203,6 +279,8 @@ export class UserMariaDBRepository
         error instanceof UserActivitiesNotFoundError ||
         error instanceof UserEmailConflictError ||
         error instanceof ActivityAlreadyHasLeaderError ||
+        error instanceof InvalidUserActivitiesRoleError ||
+        error instanceof LeaderUserRequiresActivitiesError ||
         error instanceof UserNotCreatedError
       ) {
         throw error;
@@ -244,6 +322,8 @@ export class UserMariaDBRepository
       clerkId: row.clerk_id,
       departmentId: row.department_id,
       title: row.title,
+      firstName: row.first_name,
+      lastName: row.last_name,
       email: row.email,
       isActive: Boolean(row.is_active),
       createdAt: row.created_at,

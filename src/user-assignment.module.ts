@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MariaDbModule } from './mariadb.module';
 import { UserModule } from './user.module';
 import { AdminUserAssignmentController } from './infrastructure/controllers/admin-user-assignment.controller';
+import { RoleController } from './infrastructure/controllers/role.controller';
 import {
   UserAssignmentLogicI,
   UserAssignmentRepositoryI,
@@ -11,7 +12,7 @@ import { UserAssignmentMariaDBRepository } from './infrastructure/mariadb/user-a
 
 @Module({
   imports: [MariaDbModule, UserModule],
-  controllers: [AdminUserAssignmentController],
+  controllers: [AdminUserAssignmentController, RoleController],
   providers: [
     {
       provide: UserAssignmentLogicI,

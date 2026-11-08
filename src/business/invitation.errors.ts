@@ -33,6 +33,18 @@ export class InvitationRolesNotFoundError extends Error {
   }
 }
 
+export class InvitationRoleIdsNotFoundError extends Error {
+  readonly missingRoleIds: number[];
+
+  constructor(missingRoleIds: number[]) {
+    super(
+      `Los siguientes IDs de rol no existen: ${missingRoleIds.join(', ')}.`,
+    );
+    this.name = 'InvitationRoleIdsNotFoundError';
+    this.missingRoleIds = missingRoleIds;
+  }
+}
+
 export class InvitationActivitiesNotFoundError extends Error {
   readonly missingActivityCodes: string[];
 

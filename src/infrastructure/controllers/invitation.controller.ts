@@ -25,9 +25,13 @@ export class InvitationController {
   async create(@Body() dto: CreateInvitationDto): Promise<{ message: string }> {
     const invitation = new Invitation({
       email: dto.email,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
       departmentId: dto.departmentId,
       title: dto.title,
+      roleIds: dto.roleIds,
       roleCodes: dto.roleCodes,
+      activityIds: dto.activityIds,
       activityCodes: dto.activityCodes ?? [],
     });
 

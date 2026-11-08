@@ -64,11 +64,15 @@ describe('UserMariaDBRepository (transacciones, conflictos e idempotencia)', () 
       .mockResolvedValueOnce([])
       // 7. INSERT IGNORE user_roles (lider_actividad)
       .mockResolvedValueOnce([])
-      // 8. UPDATE activities SET leader_id = ?
+      // 8. INSERT INTO user_activities (C1A1)
+      .mockResolvedValueOnce([])
+      // 9. INSERT INTO user_activities (C1A2)
       .mockResolvedValueOnce([]);
 
     const user = new User({
       clerkId: 'user_clerk_123',
+      firstName: 'Hector',
+      lastName: 'Ramirez Olvera',
       email: 'nuevo@itsoeh.edu.mx',
       departmentId: 3,
       title: 'Mtro.',
@@ -107,6 +111,8 @@ describe('UserMariaDBRepository (transacciones, conflictos e idempotencia)', () 
 
     const user = new User({
       clerkId: 'user_clerk_nuevo',
+      firstName: 'Juan',
+      lastName: 'Perez',
       email: 'nuevo@itsoeh.edu.mx',
       departmentId: 3,
       title: 'Ing.',
@@ -149,11 +155,13 @@ describe('UserMariaDBRepository (transacciones, conflictos e idempotencia)', () 
       .mockResolvedValueOnce([])
       // 6. INSERT IGNORE user_roles
       .mockResolvedValueOnce([])
-      // 7. UPDATE activities
+      // 7. INSERT INTO user_activities
       .mockResolvedValueOnce([]);
 
     const user = new User({
       clerkId: 'user_clerk_123',
+      firstName: 'Juan',
+      lastName: 'Perez',
       email: 'mismo@itsoeh.edu.mx',
       departmentId: 3,
       title: 'Ing.',
@@ -185,6 +193,8 @@ describe('UserMariaDBRepository (transacciones, conflictos e idempotencia)', () 
 
     const user = new User({
       clerkId: 'user_clerk_nueva_cuenta',
+      firstName: 'Carmen',
+      lastName: 'Rojo Monroy',
       email: 'crojo@placeholder.edu.mx',
       departmentId: 1,
       title: 'C.P.',
@@ -204,6 +214,8 @@ describe('UserMariaDBRepository (transacciones, conflictos e idempotencia)', () 
 
     const user = new User({
       clerkId: 'user_clerk_123',
+      firstName: 'Juan',
+      lastName: 'Perez',
       email: 'test@itsoeh.edu.mx',
       departmentId: 1,
       title: 'Lic.',
@@ -223,6 +235,8 @@ describe('UserMariaDBRepository (transacciones, conflictos e idempotencia)', () 
 
     const user = new User({
       clerkId: 'user_clerk_123',
+      firstName: 'Juan',
+      lastName: 'Perez',
       email: 'test@itsoeh.edu.mx',
       departmentId: 1,
       title: 'Lic.',
@@ -241,6 +255,8 @@ describe('UserMariaDBRepository (transacciones, conflictos e idempotencia)', () 
 
     const user = new User({
       clerkId: 'user_clerk_123',
+      firstName: 'Juan',
+      lastName: 'Perez',
       email: 'test@itsoeh.edu.mx',
       departmentId: 99,
       title: 'Lic.',
@@ -252,6 +268,43 @@ describe('UserMariaDBRepository (transacciones, conflictos e idempotencia)', () 
       UserDepartmentNotFoundError,
     );
     expect(mockConn.rollback).toHaveBeenCalledTimes(1);
+  });
+
+  it('persiste usuario, roles y actividades usando roleIds y activityIds exclusivamente', async () => {
+    mockConn.execute
+      // 1. SELECT department
+      .mockResolvedValueOnce([{ id: 3 }])
+      // 2. SELECT roles by id
+      .mockResolvedValueOnce([{ id: 2, code: 'lider_actividad' }])
+      // 3. SELECT activities by id FOR UPDATE
+      .mockResolvedValueOnce([
+        { id: 10, code: 'C1A1', leader_id: null, leader_email: null },
+      ])
+      // 4. SELECT existing users FOR UPDATE
+      .mockResolvedValueOnce([])
+      // 5. INSERT INTO users ... RETURNING id
+      .mockResolvedValueOnce([{ id: 'uuid-user-ids-only' }])
+      // 6. INSERT IGNORE user_roles
+      .mockResolvedValueOnce([])
+      // 7. INSERT INTO user_activities
+      .mockResolvedValueOnce([]);
+
+    const user = new User({
+      clerkId: 'user_clerk_ids_only',
+      firstName: 'Juan',
+      lastName: 'Perez',
+      email: 'ids_only@itsoeh.edu.mx',
+      departmentId: 3,
+      title: 'Mtro.',
+      roleIds: [2],
+      activityIds: [10],
+    });
+
+    const userId = await repository.save(user);
+
+    expect(userId).toBe('uuid-user-ids-only');
+    expect(mockConn.beginTransaction).toHaveBeenCalledTimes(1);
+    expect(mockConn.commit).toHaveBeenCalledTimes(1);
   });
 });
 

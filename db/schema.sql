@@ -27,13 +27,10 @@ CREATE TABLE `activities` (
   `component_id` int(10) unsigned NOT NULL,
   `code` varchar(10) NOT NULL,
   `name` varchar(255) NOT NULL,
-  `leader_id` char(36) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `code` (`code`),
   KEY `component_id` (`component_id`),
-  KEY `leader_id` (`leader_id`),
-  CONSTRAINT `activities_ibfk_1` FOREIGN KEY (`component_id`) REFERENCES `components` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `activities_ibfk_2` FOREIGN KEY (`leader_id`) REFERENCES `users` (`id`)
+  CONSTRAINT `activities_ibfk_1` FOREIGN KEY (`component_id`) REFERENCES `components` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -78,13 +75,10 @@ CREATE TABLE `components` (
   `code` varchar(10) NOT NULL,
   `name` varchar(255) NOT NULL,
   `administrative_unit_id` int(10) unsigned NOT NULL,
-  `leader_id` char(36) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `code` (`code`),
   KEY `administrative_unit_id` (`administrative_unit_id`),
-  KEY `leader_id` (`leader_id`),
-  CONSTRAINT `components_ibfk_1` FOREIGN KEY (`administrative_unit_id`) REFERENCES `administrative_units` (`id`),
-  CONSTRAINT `components_ibfk_2` FOREIGN KEY (`leader_id`) REFERENCES `users` (`id`)
+  CONSTRAINT `components_ibfk_1` FOREIGN KEY (`administrative_unit_id`) REFERENCES `administrative_units` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -97,7 +91,6 @@ CREATE TABLE `components` (
 CREATE TABLE `departments` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(120) NOT NULL,
-  `is_active` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -113,6 +106,21 @@ CREATE TABLE `funding_sources` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `code` varchar(10) NOT NULL,
   `name` varchar(100) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `isos`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `isos` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `code` varchar(50) NOT NULL,
+  `name` varchar(255) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -168,7 +176,7 @@ CREATE TABLE `purchase_requests` (
   `requested_by` char(36) NOT NULL,
   `status` enum('SOLICITADO','AUTORIZA_LIDER','RECHAZA_LIDER','AUTORIZA_SUFICIENCIA','RECHAZA_SUFICIENCIA','APRUEBA_SUFICIENCIA') NOT NULL DEFAULT 'SOLICITADO',
   `purchase_type` enum('COMPRA_MOSTRADOR','COMPRA_ADJ_DIRECTA','COMPRA_LICITACION','COMPRA_INVITACION') NOT NULL,
-  `iso` varchar(200) NOT NULL DEFAULT 'NOM-012-SCFI-1994 DEL SGC',
+  `isos` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`isos`)),
   `justification` text NOT NULL,
   `total_amount_estimated` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total_amount_final` decimal(12,2) NOT NULL DEFAULT 0.00,
@@ -236,6 +244,41 @@ CREATE TABLE `schema_migrations` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `user_activities`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_activities` (
+  `user_id` char(36) NOT NULL,
+  `activity_id` int(10) unsigned NOT NULL,
+  `assigned_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`user_id`,`activity_id`),
+  UNIQUE KEY `uk_user_activities_activity_id` (`activity_id`),
+  CONSTRAINT `user_activities_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `user_activities_ibfk_2` FOREIGN KEY (`activity_id`) REFERENCES `activities` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `user_components`
+--
+
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_components` (
+  `user_id` char(36) NOT NULL,
+  `component_id` int(10) unsigned NOT NULL,
+  `assigned_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`user_id`,`component_id`),
+  UNIQUE KEY `uk_user_components_user_id` (`user_id`),
+  UNIQUE KEY `uk_user_components_component_id` (`component_id`),
+  CONSTRAINT `user_components_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `user_components_ibfk_2` FOREIGN KEY (`component_id`) REFERENCES `components` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `user_roles`
 --
 
@@ -262,6 +305,8 @@ CREATE TABLE `users` (
   `clerk_id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   `department_id` int(10) unsigned NOT NULL,
   `title` varchar(30) DEFAULT NULL,
+  `first_name` varchar(80) NOT NULL,
+  `last_name` varchar(80) NOT NULL,
   `email` varchar(254) NOT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -296,5 +341,5 @@ CREATE TABLE `users` (
 LOCK TABLES `schema_migrations` WRITE;
 INSERT INTO `schema_migrations` (version) VALUES
   ('20261027165413'),
-  ('20261103233000');
+  ('20261105120000');
 UNLOCK TABLES;

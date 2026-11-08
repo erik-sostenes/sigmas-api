@@ -19,7 +19,7 @@ type DatabasePurchaseRequestRow = {
   requested_by: string;
   status: RequestStatus;
   purchase_type: PurchaseType;
-  iso: string;
+  isos: string | string[];
   justification: string;
   total_amount_estimated: string | number; // DECIMAL
   total_amount_final: string | number; // DECIMAL
@@ -38,13 +38,13 @@ export class PurchaseRequestRepository
     try {
       rows = await this.execute(
         `INSERT INTO purchase_requests
-           (requested_by, purchase_type, iso, justification, total_amount_estimated)
+           (requested_by, purchase_type, isos, justification, total_amount_estimated)
          VALUES (?, ?, ?, ?, ?)
          RETURNING id`,
         [
           request.requestedBy,
           request.purchaseType,
-          request.iso,
+          JSON.stringify(request.isos),
           request.justification,
           request.totalAmountEstimated,
         ],
@@ -87,7 +87,11 @@ export class PurchaseRequestRepository
       requestedBy: row.requested_by,
       status: row.status,
       purchaseType: row.purchase_type,
-      iso: row.iso,
+      isos: Array.isArray(row.isos)
+        ? row.isos
+        : typeof row.isos === 'string'
+          ? JSON.parse(row.isos)
+          : [],
       justification: row.justification,
       totalAmountEstimated: Number(row.total_amount_estimated),
       totalAmountFinal: Number(row.total_amount_final),

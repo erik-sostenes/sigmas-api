@@ -25,20 +25,28 @@ export class UserLogic implements UserLogicI {
       );
     }
 
-    if (user.roleCodes.length === 0) {
+    if (user.roleCodes.length === 0 && user.roleIds.length === 0) {
       throw new InvalidUserAssignmentError(
         'El usuario debe tener al menos un rol asignado.',
       );
     }
 
-    const isActivityLeader = user.roleCodes.includes(LIDER_ACTIVIDAD_ROLE_CODE);
+    const hasActivities =
+      user.activityIds.length > 0 || user.activityCodes.length > 0;
+    const hasRoleCodes = user.roleCodes.length > 0;
 
-    if (!isActivityLeader && user.activityCodes.length > 0) {
-      throw new InvalidUserActivitiesRoleError();
-    }
+    if (hasRoleCodes) {
+      const isActivityLeader = user.roleCodes.includes(
+        LIDER_ACTIVIDAD_ROLE_CODE,
+      );
 
-    if (isActivityLeader && user.activityCodes.length === 0) {
-      throw new LeaderUserRequiresActivitiesError();
+      if (!isActivityLeader && hasActivities) {
+        throw new InvalidUserActivitiesRoleError();
+      }
+
+      if (isActivityLeader && !hasActivities) {
+        throw new LeaderUserRequiresActivitiesError();
+      }
     }
 
     return await this.userRepository.save(user);

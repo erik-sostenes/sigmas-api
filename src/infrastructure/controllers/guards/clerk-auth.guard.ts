@@ -39,7 +39,8 @@ export class ClerkAuthGuard implements CanActivate {
       };
 
       return true;
-    } catch {
+    } catch (error) {
+      console.error('Error al verificar token de Clerk:', error);
       throw new UnauthorizedException('Token inválido o expirado');
     }
   }

@@ -4,6 +4,7 @@ import { MARIADB_POOL } from './mariadb.connection';
 import {
   InvitationActivityCheckItem,
   InvitationCatalogRepositoryI,
+  RoleLookupItem,
 } from '../../business/invitation.ports';
 
 @Injectable()
@@ -14,7 +15,7 @@ export class InvitationCatalogMariaDBRepository implements InvitationCatalogRepo
     const rows = await this.pool.execute<{ id: number }[]>(
       `SELECT id
        FROM departments
-       WHERE id = ? AND is_active = TRUE
+       WHERE id = ?
        LIMIT 1`,
       [departmentId],
     );
@@ -48,6 +49,44 @@ export class InvitationCatalogMariaDBRepository implements InvitationCatalogRepo
     return rows.map((row) => row.code);
   }
 
+  async findRolesByIds(roleIds: number[]): Promise<RoleLookupItem[]> {
+    if (roleIds.length === 0) {
+      return [];
+    }
+
+    const placeholders = roleIds.map(() => '?').join(', ');
+    const rows = await this.pool.execute<{ id: number; code: string }[]>(
+      `SELECT id, code
+       FROM roles
+       WHERE id IN (${placeholders})`,
+      roleIds,
+    );
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      code: row.code,
+    }));
+  }
+
+  async findRolesByCodes(roleCodes: string[]): Promise<RoleLookupItem[]> {
+    if (roleCodes.length === 0) {
+      return [];
+    }
+
+    const placeholders = roleCodes.map(() => '?').join(', ');
+    const rows = await this.pool.execute<{ id: number; code: string }[]>(
+      `SELECT id, code
+       FROM roles
+       WHERE code IN (${placeholders})`,
+      roleCodes,
+    );
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      code: row.code,
+    }));
+  }
+
   async findActivitiesByCodes(
     activityCodes: string[],
   ): Promise<InvitationActivityCheckItem[]> {
@@ -57,19 +96,63 @@ export class InvitationCatalogMariaDBRepository implements InvitationCatalogRepo
 
     const placeholders = activityCodes.map(() => '?').join(', ');
     const rows = await this.pool.execute<
-      { code: string; leader_id: string | null; leader_email: string | null }[]
+      {
+        id: number;
+        code: string;
+        leader_id: string | null;
+        leader_email: string | null;
+      }[]
     >(
       `SELECT
+         a.id,
          a.code,
-         a.leader_id,
+         ua.user_id AS leader_id,
          u.email AS leader_email
        FROM activities a
-       LEFT JOIN users u ON u.id = a.leader_id
+       LEFT JOIN user_activities ua ON ua.activity_id = a.id
+       LEFT JOIN users u ON u.id = ua.user_id
        WHERE a.code IN (${placeholders})`,
       activityCodes,
     );
 
     return rows.map((row) => ({
+      id: Number(row.id),
+      code: row.code,
+      leaderId: row.leader_id ?? null,
+      leaderEmail: row.leader_email ?? null,
+    }));
+  }
+
+  async findActivitiesByIds(
+    activityIds: number[],
+  ): Promise<InvitationActivityCheckItem[]> {
+    if (activityIds.length === 0) {
+      return [];
+    }
+
+    const placeholders = activityIds.map(() => '?').join(', ');
+    const rows = await this.pool.execute<
+      {
+        id: number;
+        code: string;
+        leader_id: string | null;
+        leader_email: string | null;
+      }[]
+    >(
+      `SELECT
+         a.id,
+         a.code,
+         ua.user_id AS leader_id,
+         u.email AS leader_email
+       FROM activities a
+       LEFT JOIN user_activities ua ON ua.activity_id = a.id
+       LEFT JOIN users u ON u.id = ua.user_id
+       WHERE a.id IN (${placeholders})`,
+      activityIds,
+    );
+
+    return rows.map((row) => ({
+      id: Number(row.id),
       code: row.code,
       leaderId: row.leader_id ?? null,
       leaderEmail: row.leader_email ?? null,
