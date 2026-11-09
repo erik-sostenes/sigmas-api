@@ -6,31 +6,44 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
-  InvalidPurchaseRequestError,
+  PurchaseRequestDomainError,
   PurchaseRequesterNotFoundError,
   PurchaseRequestNotCreatedError,
+  InvalidPurchaseRequestError,
+  ProductItemNotFoundError,
+  RequestComponentNotFoundError,
 } from '../../business/purchase-request.errors';
 
-@Catch(
-  InvalidPurchaseRequestError,
-  PurchaseRequesterNotFoundError,
-  PurchaseRequestNotCreatedError,
-)
+@Catch(PurchaseRequestDomainError)
 export class PurchaseRequestExceptionFilter implements ExceptionFilter {
   catch(error: Error, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
-
-    let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    if (error instanceof InvalidPurchaseRequestError) {
-      status = HttpStatus.BAD_REQUEST;
-    } else if (error instanceof PurchaseRequesterNotFoundError) {
-      status = HttpStatus.UNPROCESSABLE_ENTITY;
-    }
+    const status = this.getHttpStatus(error);
 
     res.status(status).json({
       statusCode: status,
       error: error.name,
       message: error.message,
     });
+  }
+
+  private getHttpStatus(error: Error): number {
+    if (
+      error instanceof PurchaseRequesterNotFoundError ||
+      error instanceof ProductItemNotFoundError ||
+      error instanceof RequestComponentNotFoundError
+    ) {
+      return HttpStatus.UNPROCESSABLE_ENTITY; // 422 (o puedes usar NOT_FOUND 404)
+    }
+
+    if (error instanceof PurchaseRequestNotCreatedError) {
+      return HttpStatus.INTERNAL_SERVER_ERROR; // 500
+    }
+
+    if (error instanceof InvalidPurchaseRequestError) {
+      return HttpStatus.BAD_REQUEST; // 400
+    }
+
+    return HttpStatus.BAD_REQUEST;
   }
 }
