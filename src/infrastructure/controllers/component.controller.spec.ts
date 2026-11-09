@@ -7,7 +7,7 @@ describe('ComponentController', () => {
     const mockComponents: ComponentWithAdministrativeUnit[] = [
       {
         id: 1,
-        code: 'C1',
+        code: '01',
         name: 'COMPONENTE 1',
         unit_administrative: {
           id: 1,
@@ -17,7 +17,7 @@ describe('ComponentController', () => {
       },
       {
         id: 2,
-        code: 'C2',
+        code: '02',
         name: 'COMPONENTE 2',
         unit_administrative: {
           id: 2,

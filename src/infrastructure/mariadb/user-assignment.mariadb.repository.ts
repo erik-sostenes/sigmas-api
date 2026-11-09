@@ -141,5 +141,18 @@ export class UserAssignmentMariaDBRepository implements UserAssignmentRepository
       requiresActivities: row.code === LIDER_ACTIVIDAD_ROLE_CODE,
     }));
   }
+
+  async findDepartments(): Promise<DepartmentOption[]> {
+    const departmentRows = await this.pool.execute<DepartmentRow[]>(
+      `SELECT id, name
+       FROM departments
+       ORDER BY name ASC`,
+    );
+
+    return departmentRows.map((row) => ({
+      id: Number(row.id),
+      name: row.name,
+    }));
+  }
 }
 

@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { RoleOption, UserAssignmentOptions } from './user-assignment.model';
+import {
+  DepartmentOption,
+  RoleOption,
+  UserAssignmentOptions,
+} from './user-assignment.model';
 import {
   UserAssignmentLogicI,
   UserAssignmentRepositoryI,
@@ -17,6 +21,10 @@ export class UserAssignmentLogic implements UserAssignmentLogicI {
 
   async getRoles(): Promise<RoleOption[]> {
     return await this.userAssignmentRepository.findRoles();
+  }
+
+  async getDepartments(): Promise<DepartmentOption[]> {
+    return await this.userAssignmentRepository.findDepartments();
   }
 }
 

@@ -72,8 +72,9 @@ CREATE TABLE IF NOT EXISTS components (
 CREATE TABLE IF NOT EXISTS activities (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     component_id INT UNSIGNED NOT NULL,
-    code VARCHAR(10) NOT NULL UNIQUE,
+    code VARCHAR(10) NOT NULL,
     name VARCHAR(255) NOT NULL,
+    UNIQUE KEY uk_activities_component_code (component_id, code),
     FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

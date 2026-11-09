@@ -6,7 +6,7 @@ describe('ComponentMariaDBRepository', () => {
     const execute = jest.fn().mockResolvedValueOnce([
       {
         id: 1,
-        code: 'C1',
+        code: '01',
         name: 'COMPONENTE 1',
         au_id: 1,
         au_code: '1000',
@@ -14,7 +14,7 @@ describe('ComponentMariaDBRepository', () => {
       },
       {
         id: 2,
-        code: 'C2',
+        code: '02',
         name: 'COMPONENTE 2',
         au_id: 2,
         au_code: '2000',
@@ -32,7 +32,7 @@ describe('ComponentMariaDBRepository', () => {
     expect(components).toEqual([
       {
         id: 1,
-        code: 'C1',
+        code: '01',
         name: 'COMPONENTE 1',
         unit_administrative: {
           id: 1,
@@ -42,7 +42,7 @@ describe('ComponentMariaDBRepository', () => {
       },
       {
         id: 2,
-        code: 'C2',
+        code: '02',
         name: 'COMPONENTE 2',
         unit_administrative: {
           id: 2,

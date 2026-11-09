@@ -6,6 +6,8 @@ import { UserModule } from './user.module';
 import { UserAssignmentModule } from './user-assignment.module';
 import { IsoModule } from './iso.module';
 import { ComponentModule } from './component.module';
+import { ActivityModule } from './activity.module';
+import { FundingSourceModule } from './funding-source.module';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { ComponentModule } from './component.module';
     UserAssignmentModule,
     IsoModule,
     ComponentModule,
+    ActivityModule,
+    FundingSourceModule,
   ],
 })
 export class AppModule {}

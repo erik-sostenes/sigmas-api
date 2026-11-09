@@ -28,7 +28,7 @@ CREATE TABLE `activities` (
   `code` varchar(10) NOT NULL,
   `name` varchar(255) NOT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `code` (`code`),
+  UNIQUE KEY `uk_activities_component_code` (`component_id`,`code`),
   KEY `component_id` (`component_id`),
   CONSTRAINT `activities_ibfk_1` FOREIGN KEY (`component_id`) REFERENCES `components` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -53,19 +53,19 @@ INSERT INTO funding_sources (code, name) VALUES
 -- components
 -- ------------------------------------------------------------
 INSERT INTO components (code, name, administrative_unit_id) VALUES
-    ('C1', 'ESTUDIANTES DEL NIVEL SUPERIOR DE EDUCACIÓN EN INSTITUCIONES PÚBLICAS FORMADOS',
+    ('01', 'ESTUDIANTES DEL NIVEL SUPERIOR DE EDUCACIÓN EN INSTITUCIONES PÚBLICAS FORMADOS',
         (SELECT id FROM administrative_units WHERE code = '1000')),
 
-    ('C2', 'SERVICIOS DE EXTENSIÓN Y VINCULACIÓN DE EDUCACIÓN SUPERIOR OTORGADOS',
+    ('02', 'SERVICIOS DE EXTENSIÓN Y VINCULACIÓN DE EDUCACIÓN SUPERIOR OTORGADOS',
         (SELECT id FROM administrative_units WHERE code = '2000')),
 
-    ('C3', 'INVESTIGACIÓN CIENTÍFICA, TECNOLÓGICA Y EDUCATIVA DESARROLLADA',
+    ('03', 'INVESTIGACIÓN CIENTÍFICA, TECNOLÓGICA Y EDUCATIVA DESARROLLADA',
         (SELECT id FROM administrative_units WHERE code = '3000')),
 
-    ('C4', 'INSTRUMENTOS DE PLANEACIÓN ESTRATÉGICA EVALUADOS',
+    ('04', 'INSTRUMENTOS DE PLANEACIÓN ESTRATÉGICA EVALUADOS',
         (SELECT id FROM administrative_units WHERE code = '4000')),
 
-    ('C5', 'NECESIDADES DE LA COMUNIDAD EDUCATIVA DE LAS INSTITUCIONES DE EDUCACIÓN SUPERIOR ATENDIDAS',
+    ('05', 'NECESIDADES DE LA COMUNIDAD EDUCATIVA DE LAS INSTITUCIONES DE EDUCACIÓN SUPERIOR ATENDIDAS',
         (SELECT id FROM administrative_units WHERE code = '5000'));
 
 -- ------------------------------------------------------------
@@ -75,74 +75,74 @@ INSERT INTO components (code, name, administrative_unit_id) VALUES
 -- ------------------------------------------------------------
 INSERT INTO activities (component_id, code, name) VALUES
     -- C1
-    ((SELECT id FROM components WHERE code = 'C1'), 'C1A1',
+    ((SELECT id FROM components WHERE code = '01'), '01',
         'SEGUIMIENTO AL PROCESO DE SERVICIO SOCIAL, RESIDENCIAS O ESTADÍAS PROFESIONALES E INTERNADO DE PREGRADO DEL ESTUDIANTADO'),
 
-    ((SELECT id FROM components WHERE code = 'C1'), 'C1A2',
+    ((SELECT id FROM components WHERE code = '01'), '02',
         'ELABORACIÓN DE ESTUDIOS DE PERTINENCIA Y FACTIBILIDAD DE LA OFERTA EDUCATIVA DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C1'), 'C1A3',
+    ((SELECT id FROM components WHERE code = '01'), '03',
         'EVALUACIÓN ACADÉMICA AL ESTUDIANTADO DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C1'), 'C1A4',
+    ((SELECT id FROM components WHERE code = '01'), '04',
         'IMPARTICIÓN DE ACTIVIDADES EXTRACURRICULARES EN EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C1'), 'C1A5',
+    ((SELECT id FROM components WHERE code = '01'), '05',
         'ATENCIÓN COMPENSATORIA A ESTUDIANTES DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C1'), 'C1A6',
+    ((SELECT id FROM components WHERE code = '01'), '06',
         'CAPACITACIÓN DEL PERSONAL DOCENTE DE INSTITUCIONES DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C1'), 'C1A7',
+    ((SELECT id FROM components WHERE code = '01'), '07',
         'OTORGAMIENTO DE BECAS INSTITUCIONALES A ESTUDIANTES DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C1'), 'C1A8',
+    ((SELECT id FROM components WHERE code = '01'), '08',
         'DISTRIBUCIÓN DE MATERIAL DIDÁCTICO A DOCENTES DE EDUCACIÓN SUPERIOR'),
 
     -- C2
-    ((SELECT id FROM components WHERE code = 'C2'), 'C2A1',
+    ((SELECT id FROM components WHERE code = '02'), '01',
         'OTORGAMIENTO DE SERVICIOS DE EDUCACIÓN CONTINUA Y TECNOLÓGICOS DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C2'), 'C2A2',
+    ((SELECT id FROM components WHERE code = '02'), '02',
         'DIFUSIÓN INSTITUCIONAL DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C2'), 'C2A3',
+    ((SELECT id FROM components WHERE code = '02'), '03',
         'OTORGAMIENTO DE ORIENTACIÓN PROFESIOGRÁFICA PARA LA EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C2'), 'C2A4',
+    ((SELECT id FROM components WHERE code = '02'), '04',
         'FIRMA DE CONVENIOS DE COLABORACIÓN EN EDUCACIÓN SUPERIOR'),
 
     -- C3
-    ((SELECT id FROM components WHERE code = 'C3'), 'C3A1',
+    ((SELECT id FROM components WHERE code = '03'), '01',
         'SELECCIÓN DE PROYECTOS DE INVESTIGACIÓN CIENTÍFICA Y TECNOLÓGICA DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C3'), 'C3A2',
+    ((SELECT id FROM components WHERE code = '03'), '02',
         'DIVULGACIÓN DE INVESTIGACIÓN CIENTÍFICA Y TECNOLÓGICA DE EDUCACIÓN SUPERIOR'),
 
     -- C4
-    ((SELECT id FROM components WHERE code = 'C4'), 'C4A1',
+    ((SELECT id FROM components WHERE code = '04'), '01',
         'APLICACIÓN DE EVALUACIONES INSTITUCIONALES A LOS PROGRAMAS EDUCATIVOS'),
 
-    ((SELECT id FROM components WHERE code = 'C4'), 'C4A2',
+    ((SELECT id FROM components WHERE code = '04'), '02',
         'EVALUACIÓN A DOCENTES DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C4'), 'C4A3',
+    ((SELECT id FROM components WHERE code = '04'), '03',
         'ACTUALIZACIÓN DE MÓDULOS DE SISTEMAS DE INFORMACIÓN EN LA INSTITUCIÓN EDUCATIVA'),
 
     -- C5
-    ((SELECT id FROM components WHERE code = 'C5'), 'C5A1',
+    ((SELECT id FROM components WHERE code = '05'), '01',
         'CAPACITACIÓN A PERSONAL ADMINISTRATIVO DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C5'), 'C5A2',
+    ((SELECT id FROM components WHERE code = '05'), '02',
         'UTILIZACIÓN DE LA CAPACIDAD FÍSICA INSTALADA PARA LAS ACTIVIDADES ACADÉMICAS EN INSTITUCIONES DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C5'), 'C5A3',
+    ((SELECT id FROM components WHERE code = '05'), '03',
         'MANTENIMIENTO A LA INFRAESTRUCTURA FÍSICA EDUCATIVA DE EDUCACIÓN SUPERIOR'),
 
-    ((SELECT id FROM components WHERE code = 'C5'), 'C5A4',
+    ((SELECT id FROM components WHERE code = '05'), '04',
         'EJECUCIÓN DE PROYECTOS DE INVERSIÓN'),
 
-    ((SELECT id FROM components WHERE code = 'C5'), 'C5A5',
+    ((SELECT id FROM components WHERE code = '05'), '05',
         'ADMINISTRACIÓN DE RECAUDACIÓN DE INGRESOS PROPIOS');
 
 
