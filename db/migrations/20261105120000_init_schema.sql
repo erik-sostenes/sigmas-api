@@ -150,7 +150,86 @@ CREATE TABLE IF NOT EXISTS product_items (
     FOREIGN KEY (measurement_unit_id) REFERENCES measurement_units(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS providers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    rfc VARCHAR(13) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    phone VARCHAR(25) NULL,
+    email VARCHAR(254) NULL,
+    bank VARCHAR(100) NULL,
+    clabe VARCHAR(25) NULL,
+    tax_address LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL CHECK (tax_address IS NULL OR JSON_VALID(tax_address)),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_providers_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comparative_charts (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    purchase_request_id CHAR(36) NOT NULL UNIQUE,
+    chart_date DATE NOT NULL,
+    awarded_provider_id INT UNSIGNED NULL,
+    awarded_justification TEXT NULL,
+    delivery_date VARCHAR(100) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_comparative_charts_awarded (awarded_provider_id),
+    FOREIGN KEY (purchase_request_id) REFERENCES purchase_requests(id) ON DELETE CASCADE,
+    FOREIGN KEY (awarded_provider_id) REFERENCES providers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comparative_chart_providers (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    comparative_chart_id CHAR(36) NOT NULL,
+    provider_id INT UNSIGNED NOT NULL,
+    position TINYINT UNSIGNED NOT NULL,
+    subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    iva DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    retention_iva DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    retention_isr DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    total_score INT NOT NULL DEFAULT 0,
+    UNIQUE KEY uk_ccp_chart_provider (comparative_chart_id, provider_id),
+    UNIQUE KEY uk_ccp_chart_position (comparative_chart_id, position),
+    INDEX idx_ccp_provider (provider_id),
+    FOREIGN KEY (comparative_chart_id) REFERENCES comparative_charts(id) ON DELETE CASCADE,
+    FOREIGN KEY (provider_id) REFERENCES providers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comparative_chart_items (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    comparative_chart_id CHAR(36) NOT NULL,
+    product_item_id CHAR(36) NOT NULL,
+    provider_id INT UNSIGNED NOT NULL,
+    unit_cost DECIMAL(12,2) NULL,
+    total_cost DECIMAL(12,2) NULL,
+    UNIQUE KEY uk_cci_item_provider (comparative_chart_id, product_item_id, provider_id),
+    INDEX idx_cci_product_item (product_item_id),
+    INDEX idx_cci_provider (provider_id),
+    FOREIGN KEY (comparative_chart_id) REFERENCES comparative_charts(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_item_id) REFERENCES product_items(id) ON DELETE CASCADE,
+    FOREIGN KEY (provider_id) REFERENCES providers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comparative_chart_evaluations (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    comparative_chart_id CHAR(36) NOT NULL,
+    provider_id INT UNSIGNED NOT NULL,
+    criterion ENUM('PRECIO', 'TIEMPO_ENTREGA', 'TIEMPO_RESPUESTA', 'FINANCIAMIENTO', 'GARANTIA') NOT NULL,
+    score INT NOT NULL DEFAULT 0,
+    description VARCHAR(255) NOT NULL,
+    UNIQUE KEY uk_cce_chart_prov_crit (comparative_chart_id, provider_id, criterion),
+    INDEX idx_cce_provider (provider_id),
+    FOREIGN KEY (comparative_chart_id) REFERENCES comparative_charts(id) ON DELETE CASCADE,
+    FOREIGN KEY (provider_id) REFERENCES providers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- migrate:down
+DROP TABLE IF EXISTS comparative_chart_evaluations;
+DROP TABLE IF EXISTS comparative_chart_items;
+DROP TABLE IF EXISTS comparative_chart_providers;
+DROP TABLE IF EXISTS comparative_charts;
+DROP TABLE IF EXISTS providers;
 DROP TABLE IF EXISTS product_items;
 DROP TABLE IF EXISTS request_components;
 DROP TABLE IF EXISTS purchase_requests;
