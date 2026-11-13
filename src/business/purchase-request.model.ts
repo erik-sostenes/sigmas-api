@@ -25,7 +25,7 @@ type PurchaseRequestProps = {
   requestedBy: string; // users.id
   status?: RequestStatus;
   purchaseType: PurchaseType;
-  iso: string;
+  isos: string[];
   justification: string;
   totalAmountEstimated?: number;
   totalAmountFinal?: number;
@@ -39,7 +39,7 @@ export class PurchaseRequest {
   readonly requestedBy: string;
   readonly status: RequestStatus;
   readonly purchaseType: PurchaseType;
-  readonly iso: string;
+  readonly isos: string[];
   readonly justification: string;
   readonly totalAmountEstimated: number;
   readonly totalAmountFinal: number;
@@ -52,7 +52,7 @@ export class PurchaseRequest {
     this.requestedBy = props.requestedBy;
     this.status = props.status ?? 'SOLICITADO';
     this.purchaseType = props.purchaseType;
-    this.iso = props.iso;
+    this.isos = (props.isos ?? []).map((iso) => iso.trim()).filter((iso) => iso.length > 0);
     this.justification = props.justification;
     this.totalAmountEstimated = props.totalAmountEstimated ?? 0;
     this.totalAmountFinal = props.totalAmountFinal ?? 0;
@@ -69,6 +69,11 @@ export class PurchaseRequest {
     }
     if (!PURCHASE_TYPES.includes(this.purchaseType)) {
       throw new InvalidPurchaseRequestError('El tipo de compra no es válido.');
+    }
+    if (!Array.isArray(this.isos) || this.isos.length === 0) {
+      throw new InvalidPurchaseRequestError(
+        'Debes especificar al menos una norma ISO.',
+      );
     }
     if (this.totalAmountEstimated < 0 || this.totalAmountFinal < 0) {
       throw new InvalidPurchaseRequestError(

@@ -67,6 +67,7 @@ export const mariadbConnection = {
       connectionLimit: 5,
       bigIntAsNumber: true,
       insertIdAsNumber: true,
+      allowPublicKeyRetrieval: true,
     });
   },
 };

@@ -21,9 +21,12 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
     const res = host.switchToHttp().getResponse<Response>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
+
     if (error instanceof InvalidPurchaseRequestError) {
       status = HttpStatus.BAD_REQUEST;
-    } else if (error instanceof PurchaseRequesterNotFoundError) {
+    }
+
+    if (error instanceof PurchaseRequesterNotFoundError) {
       status = HttpStatus.UNPROCESSABLE_ENTITY;
     }
 
