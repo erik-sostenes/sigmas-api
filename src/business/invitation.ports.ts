@@ -1,38 +1,23 @@
 import { Invitation } from './invitation.model';
 
-export interface InvitationActivityCheckItem {
-  id: number;
-  code: string;
-  leaderId: string | null;
-  leaderEmail: string | null;
-}
-
-export interface RoleLookupItem {
-  id: number;
-  code: string;
-}
-
-// Left port
 export abstract class InvitationLogicI {
   abstract send(invitation: Invitation): Promise<void>;
+  abstract cancel(invitationId: string): Promise<void>;
 }
 
-// Right port (Clerk)
+// Base de datos
 export abstract class InvitationRepositoryI {
-  abstract sendClerkInvitation(invitation: Invitation): Promise<void>;
+  abstract save(invitation: Invitation): Promise<string>; // Retorna el UUID
+  abstract delete(id: string): Promise<void>;
+  abstract findById(id: string): Promise<Invitation | null>;
+  abstract existsByEmail(email: string): Promise<boolean>;
+  abstract hasComponentLeader(componentId: number): Promise<boolean>;
+  abstract hasActivityLeader(activityIds: number[]): Promise<boolean>;
+  abstract findByEmail(email: string): Promise<Invitation | null>;
 }
 
-// Right port (MariaDB verification)
-export abstract class InvitationCatalogRepositoryI {
-  abstract existsActiveDepartment(departmentId: number): Promise<boolean>;
-  abstract existsUserByEmail(email: string): Promise<boolean>;
-  abstract findExistingRoleCodes(roleCodes: string[]): Promise<string[]>;
-  abstract findRolesByIds(roleIds: number[]): Promise<RoleLookupItem[]>;
-  abstract findRolesByCodes(roleCodes: string[]): Promise<RoleLookupItem[]>;
-  abstract findActivitiesByCodes(
-    activityCodes: string[],
-  ): Promise<InvitationActivityCheckItem[]>;
-  abstract findActivitiesByIds(
-    activityIds: number[],
-  ): Promise<InvitationActivityCheckItem[]>;
+// Clerk
+export abstract class ClerkInvitationRepositoryI {
+  abstract sendClerkInvitation(invitation: Invitation): Promise<string>; // Retorna el clerk_invitation_id
+  abstract revokeClerkInvitation(clerkInvitationId: string): Promise<void>;
 }

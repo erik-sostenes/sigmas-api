@@ -6,12 +6,12 @@ import {
   type RequestStatus,
 } from '../../business/purchase-request.model';
 import type { PurchaseRequestRepositoryI } from '../../business/purchase-request.ports';
-import {
-  PurchaseRequestNotCreatedError,
-  PurchaseRequesterNotFoundError,
-} from '../../business/purchase-request.errors';
 import { isForeignKeyViolation } from './mariadb.errors';
 import { MariaDBRepository, type Row } from './mariadb.repository';
+import {
+  PurchaseRequesterNotFoundError,
+  PurchaseRequestNotCreatedError,
+} from '../../business/purchase-request.errors';
 
 type DatabasePurchaseRequestRow = {
   id: string;

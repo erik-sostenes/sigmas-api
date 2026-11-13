@@ -1,218 +1,149 @@
 import { Injectable } from '@nestjs/common';
 import { Invitation } from './invitation.model';
 import {
-  InvitationCatalogRepositoryI,
   InvitationLogicI,
   InvitationRepositoryI,
+  ClerkInvitationRepositoryI,
 } from './invitation.ports';
-import { LIDER_ACTIVIDAD_ROLE_CODE } from './user-assignment.model';
+import { DepartmentRepositoryI } from './department.ports';
+import { ComponentRepositoryI } from './component.ports';
+import { RoleRepositoryI } from './role.ports';
+import { ActivityRepositoryI } from './activity.ports';
+import { UserRepositoryI } from './user.ports';
 import {
-  InvalidInvitationActivitiesRoleError,
-  InvalidInvitationError,
-  InvitationActivitiesNotFoundError,
-  InvitationActivityAlreadyHasLeaderError,
-  InvitationDepartmentNotFoundError,
-  InvitationRoleIdsNotFoundError,
-  InvitationRolesNotFoundError,
   InvitationUserAlreadyExistsError,
-  LeaderInvitationRequiresActivitiesError,
+  InvitationAlreadyPendingError,
+  InvitationDepartmentNotFoundError,
+  InvitationComponentNotFoundError,
+  InvitationComponentAlreadyHasLeaderError,
+  InvitationRoleIdsNotFoundError,
+  InvitationActivitiesNotFoundError,
+  InvalidInvitationActivitiesRoleError,
+  InvitationRequiresActivitiesError,
+  InvitationComponentRoleMismatchError,
+  InvitationActivityAlreadyHasLeaderError,
+  InvitationNotFoundError,
 } from './invitation.errors';
 
 @Injectable()
 export class InvitationLogic implements InvitationLogicI {
   constructor(
     private readonly invitationRepository: InvitationRepositoryI,
-    private readonly catalogRepository: InvitationCatalogRepositoryI,
+    private readonly clerkRepository: ClerkInvitationRepositoryI,
+    private readonly userRepository: UserRepositoryI,
+    private readonly departmentRepository: DepartmentRepositoryI,
+    private readonly componentRepository: ComponentRepositoryI,
+    private readonly roleRepository: RoleRepositoryI,
+    private readonly activityRepository: ActivityRepositoryI,
   ) {}
 
   async send(invitation: Invitation): Promise<void> {
-    if (!invitation.firstName || !invitation.lastName) {
-      throw new InvalidInvitationError(
-        'El nombre y el apellido son obligatorios.',
-      );
-    }
-
-    const hasRoleIds = invitation.roleIds.length > 0;
-    const hasRoleCodes = invitation.roleCodes.length > 0;
-
-    if (!hasRoleIds && !hasRoleCodes) {
-      throw new InvalidInvitationError(
-        'Debes especificar al menos un rol (usando roleIds o roleCodes).',
-      );
-    }
-
-    if (hasRoleIds) {
-      if (invitation.roleIds.some((id) => !Number.isInteger(id) || id < 1)) {
-        throw new InvalidInvitationError(
-          'Todos los IDs de rol deben ser números enteros positivos.',
-        );
-      }
-
-      if (new Set(invitation.roleIds).size !== invitation.roleIds.length) {
-        throw new InvalidInvitationError(
-          'La lista de roleIds no debe contener identificadores duplicados.',
-        );
-      }
-
-      const foundRoles = await this.catalogRepository.findRolesByIds(
-        invitation.roleIds,
-      );
-      const foundIdMap = new Map(foundRoles.map((r) => [r.id, r]));
-
-      const missingRoleIds = invitation.roleIds.filter(
-        (id) => !foundIdMap.has(id),
-      );
-      if (missingRoleIds.length > 0) {
-        throw new InvitationRoleIdsNotFoundError(missingRoleIds);
-      }
-
-      invitation.roleCodes = foundRoles.map((r) => r.code);
-    } else {
-      if (invitation.roleCodes.some((code) => code.length === 0)) {
-        throw new InvalidInvitationError(
-          'Debes especificar al menos un código de rol válido.',
-        );
-      }
-
-      if (new Set(invitation.roleCodes).size !== invitation.roleCodes.length) {
-        throw new InvalidInvitationError(
-          'La lista de roles no debe contener códigos duplicados.',
-        );
-      }
-
-      const foundRoles = await this.catalogRepository.findRolesByCodes(
-        invitation.roleCodes,
-      );
-      const foundCodeMap = new Map(foundRoles.map((r) => [r.code, r]));
-
-      const missingRoleCodes = invitation.roleCodes.filter(
-        (code) => !foundCodeMap.has(code),
-      );
-      if (missingRoleCodes.length > 0) {
-        throw new InvitationRolesNotFoundError(missingRoleCodes);
-      }
-
-      invitation.roleIds = foundRoles.map((r) => r.id);
-    }
-
-    if (
-      new Set(invitation.activityIds).size !== invitation.activityIds.length
-    ) {
-      throw new InvalidInvitationError(
-        'La lista de actividades no debe contener IDs duplicados.',
-      );
-    }
-
-    if (invitation.activityIds.some((id) => !Number.isInteger(id) || id <= 0)) {
-      throw new InvalidInvitationError(
-        'Cada ID de actividad debe ser un entero positivo.',
-      );
-    }
-
-    if (invitation.activityCodes.some((code) => code.length === 0)) {
-      throw new InvalidInvitationError(
-        'Los códigos de actividad no pueden estar vacíos.',
-      );
-    }
-
-    if (
-      new Set(invitation.activityCodes).size !== invitation.activityCodes.length
-    ) {
-      throw new InvalidInvitationError(
-        'La lista de actividades no debe contener códigos duplicados.',
-      );
-    }
-
-    const hasActivities =
-      invitation.activityIds.length > 0 || invitation.activityCodes.length > 0;
-
-    const isActivityLeader = invitation.roleCodes.includes(
-      LIDER_ACTIVIDAD_ROLE_CODE,
-    );
-
-    if (!isActivityLeader && hasActivities) {
-      throw new InvalidInvitationActivitiesRoleError();
-    }
-
-    if (isActivityLeader && !hasActivities) {
-      throw new LeaderInvitationRequiresActivitiesError();
-    }
-
-    const emailAlreadyExists = await this.catalogRepository.existsUserByEmail(
-      invitation.email,
-    );
-    if (emailAlreadyExists) {
+    if (await this.userRepository.existsByEmail(invitation.email)) {
       throw new InvitationUserAlreadyExistsError(invitation.email);
     }
+    if (await this.invitationRepository.existsByEmail(invitation.email)) {
+      throw new InvitationAlreadyPendingError(invitation.email);
+    }
 
-    const departmentExists =
-      await this.catalogRepository.existsActiveDepartment(
-        invitation.departmentId,
-      );
-    if (!departmentExists) {
+    if (!(await this.departmentRepository.exists(invitation.departmentId))) {
       throw new InvitationDepartmentNotFoundError(invitation.departmentId);
     }
 
-    if (invitation.activityIds.length > 0) {
-      const existingActivities =
-        await this.catalogRepository.findActivitiesByIds(
-          invitation.activityIds,
-        );
-      const activityById = new Map(
-        existingActivities.map((item) => [item.id, item]),
-      );
-
-      const missingActivityIds = invitation.activityIds.filter(
-        (id) => !activityById.has(id),
-      );
-      if (missingActivityIds.length > 0) {
-        throw new InvitationActivitiesNotFoundError(
-          missingActivityIds.map(String),
+    // 3. Validar Componente
+    if (invitation.componentId !== null) {
+      if (!(await this.componentRepository.exists(invitation.componentId))) {
+        throw new InvitationComponentNotFoundError(invitation.componentId);
+      }
+      if (
+        await this.invitationRepository.hasComponentLeader(
+          invitation.componentId,
+        )
+      ) {
+        throw new InvitationComponentAlreadyHasLeaderError(
+          invitation.componentId,
         );
       }
-
-      const conflicts = existingActivities
-        .filter((item) => item.leaderId !== null)
-        .map((item) => ({
-          activityCode: item.code,
-          currentLeaderId: item.leaderId as string,
-          currentLeaderEmail: item.leaderEmail ?? null,
-        }));
-
-      if (conflicts.length > 0) {
-        throw new InvitationActivityAlreadyHasLeaderError(conflicts);
-      }
-    } else if (invitation.activityCodes.length > 0) {
-      const existingActivities =
-        await this.catalogRepository.findActivitiesByCodes(
-          invitation.activityCodes,
-        );
-      const activityByCode = new Map(
-        existingActivities.map((item) => [item.code, item]),
-      );
-
-      const missingActivityCodes = invitation.activityCodes.filter(
-        (code) => !activityByCode.has(code),
-      );
-      if (missingActivityCodes.length > 0) {
-        throw new InvitationActivitiesNotFoundError(missingActivityCodes);
-      }
-
-      const conflicts = existingActivities
-        .filter((item) => item.leaderId !== null)
-        .map((item) => ({
-          activityCode: item.code,
-          currentLeaderId: item.leaderId as string,
-          currentLeaderEmail: item.leaderEmail ?? null,
-        }));
-
-      if (conflicts.length > 0) {
-        throw new InvitationActivityAlreadyHasLeaderError(conflicts);
-      }
-
-      invitation.activityIds = existingActivities.map((item) => item.id);
     }
 
-    await this.invitationRepository.sendClerkInvitation(invitation);
+    const roles = await this.roleRepository.findByIds(invitation.roleIds);
+    if (roles.length !== invitation.roleIds.length) {
+      const foundIds = new Set(roles.map((r) => r.id));
+      const missingRoleIds = invitation.roleIds.filter(
+        (id) => !foundIds.has(id),
+      );
+      throw new InvitationRoleIdsNotFoundError(missingRoleIds);
+    }
+
+    const requiresComponent = roles.some((r) => r.requiresComponent);
+    const hasComponent = invitation.componentId !== null;
+
+    if (requiresComponent !== hasComponent) {
+      throw new InvitationComponentRoleMismatchError();
+    }
+
+    // 6. Regla de actividades y roles
+    const requiresActivities = roles.some((r) => r.requiresActivities);
+    const hasActivities = invitation.activityIds.length > 0;
+
+    if (requiresActivities && !hasActivities) {
+      throw new InvitationRequiresActivitiesError();
+    }
+    if (!requiresActivities && hasActivities) {
+      throw new InvalidInvitationActivitiesRoleError();
+    }
+
+    // 7. Validar Actividades (existencia y líderes)
+    if (hasActivities) {
+      const activities = await this.activityRepository.findByIds(
+        invitation.activityIds,
+      );
+      if (activities.length !== invitation.activityIds.length) {
+        const foundIds = new Set(activities.map((a) => a.id));
+        const missingActivityIds = invitation.activityIds.filter(
+          (id) => !foundIds.has(id),
+        );
+        throw new InvitationActivitiesNotFoundError(missingActivityIds);
+      }
+
+      if (
+        await this.invitationRepository.hasActivityLeader(
+          invitation.activityIds,
+        )
+      ) {
+        const conflicts = invitation.activityIds.map((id) => ({
+          activityId: id,
+        }));
+        throw new InvitationActivityAlreadyHasLeaderError(conflicts);
+      }
+    }
+
+    // 8. Guardar en BD
+    const dbId = await this.invitationRepository.save(invitation);
+
+    // 9. Enviar a Clerk y actualizar con el clerk_invitation_id
+    const clerkInvitationId =
+      await this.clerkRepository.sendClerkInvitation(invitation);
+
+    await this.invitationRepository.save(
+      Invitation.rehydrate({
+        ...invitation,
+        id: dbId,
+        clerkInvitationId,
+      }),
+    );
+  }
+
+  async cancel(invitationId: string): Promise<void> {
+    const invitation = await this.invitationRepository.findById(invitationId);
+    if (!invitation) {
+      throw new InvitationNotFoundError(invitationId);
+    }
+
+    if (invitation.clerkInvitationId) {
+      await this.clerkRepository.revokeClerkInvitation(
+        invitation.clerkInvitationId,
+      );
+    }
+    await this.invitationRepository.delete(invitationId);
   }
 }

@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { MariaDbModule } from './mariadb.module';
 import { ComponentController } from './infrastructure/controllers/component.controller';
-import { ComponentLogicI, ComponentRepositoryI } from './business/component.ports';
+import {
+  ComponentLogicI,
+  ComponentRepositoryI,
+} from './business/component.ports';
 import { ComponentLogic } from './business/component.logic';
-import { ComponentMariaDBRepository } from './infrastructure/mariadb/component.mariadb.repository';
+import { ComponentRepository } from './infrastructure/mariadb/component.mariadb.repository';
 
 @Module({
   imports: [MariaDbModule],
@@ -15,10 +18,9 @@ import { ComponentMariaDBRepository } from './infrastructure/mariadb/component.m
     },
     {
       provide: ComponentRepositoryI,
-      useClass: ComponentMariaDBRepository,
+      useClass: ComponentRepository,
     },
   ],
-  exports: [ComponentLogicI],
+  exports: [ComponentLogicI, ComponentRepositoryI],
 })
 export class ComponentModule {}
-

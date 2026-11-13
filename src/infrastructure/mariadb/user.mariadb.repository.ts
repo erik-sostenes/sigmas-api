@@ -2,39 +2,24 @@ import { Injectable } from '@nestjs/common';
 import { MariaDBRepository } from './mariadb.repository';
 import { UserRepositoryI } from '../../business/user.ports';
 import { User, UserId } from '../../business/user.model';
-import { isDuplicateEntry, isForeignKeyViolation } from './mariadb.errors';
 import {
-  ActivityAlreadyHasLeaderError,
-  InvalidUserActivitiesRoleError,
-  LeaderUserRequiresActivitiesError,
-  UserActivitiesNotFoundError,
+  isDuplicateEntry,
+  isForeignKeyViolation,
+  foreignKeyColumn,
+} from './mariadb.errors';
+import {
   UserAlreadyExistsError,
   UserDepartmentNotFoundError,
-  UserEmailConflictError,
-  UserNotCreatedError,
+  UserComponentNotFoundError,
   UserRolesNotFoundError,
+  UserActivitiesNotFoundError,
+  InvalidUserActivitiesRoleError,
+  InvalidUserComponentRoleError, // <-- NUEVO
+  ComponentAlreadyHasLeaderError, // <-- NUEVO
+  LeaderUserRequiresActivitiesError,
+  ActivityAlreadyHasLeaderError,
+  UserNotCreatedError,
 } from '../../business/user.errors';
-import { LIDER_ACTIVIDAD_ROLE_CODE } from '../../business/user-assignment.model';
-
-type DatabaseUserRow = {
-  id: string;
-  clerk_id: string;
-  department_id: number;
-  title: string | null;
-  first_name: string;
-  last_name: string;
-  email: string;
-  is_active: boolean;
-  created_at: Date;
-  updated_at: Date;
-};
-
-type LockedActivityRow = {
-  id: number;
-  code: string;
-  leader_id: string | null;
-  leader_email: string | null;
-};
 
 @Injectable()
 export class UserMariaDBRepository
@@ -42,186 +27,128 @@ export class UserMariaDBRepository
   implements UserRepositoryI
 {
   async save(user: User): Promise<UserId> {
-    const conn = await this.pool.getConnection();
-
-    try {
-      await conn.beginTransaction();
-
-      const departmentRows = await conn.execute<{ id: number }[]>(
-        `SELECT id
-         FROM departments
-         WHERE id = ?
-         LIMIT 1`,
+    return this.withTransaction(async (tx) => {
+      // 1. Validar Departamento
+      const depts = await this.executeOn(
+        tx,
+        `SELECT id FROM departments WHERE id = ? LIMIT 1`,
         [user.departmentId],
       );
-
-      if (departmentRows.length === 0) {
+      if (depts.length === 0)
         throw new UserDepartmentNotFoundError(user.departmentId);
+
+      // 2. Validar Componente (si aplica) y buscar si ya tiene líder
+      let currentComponentLeaderId: string | null = null;
+      if (user.componentId !== null) {
+        const comps = await this.executeOn(
+          tx,
+          `SELECT id FROM components WHERE id = ? LIMIT 1`,
+          [user.componentId],
+        );
+        if (comps.length === 0)
+          throw new UserComponentNotFoundError(user.componentId);
+
+        // Bloqueamos el componente para ver si ya tiene un líder
+        const compLeader = await this.executeOn(
+          tx,
+          `SELECT id FROM users WHERE component_id = ? FOR UPDATE`,
+          [user.componentId],
+        );
+        if (compLeader.length > 0) {
+          currentComponentLeaderId = compLeader[0].id;
+        }
       }
 
-      let roleRows: { id: number; code: string }[] = [];
-      if (user.roleCodes.length > 0) {
-        const rolePlaceholders = this.placeholders(user.roleCodes);
-        roleRows = await conn.execute<{ id: number; code: string }[]>(
-          `SELECT id, code
-           FROM roles
-           WHERE code IN (${rolePlaceholders})`,
-          user.roleCodes,
-        );
-
-        const roleIdByCode = new Map<string, number>();
-        for (const row of roleRows) {
-          roleIdByCode.set(row.code, Number(row.id));
-        }
-
-        const missingRoleCodes = user.roleCodes.filter(
-          (code) => !roleIdByCode.has(code),
-        );
-        if (missingRoleCodes.length > 0) {
-          throw new UserRolesNotFoundError(missingRoleCodes);
-        }
-      } else if (user.roleIds.length > 0) {
+      // 3. Validar Roles
+      let roleRows: any[] = [];
+      if (user.roleIds.length > 0) {
         const rolePlaceholders = this.placeholders(user.roleIds);
-        roleRows = await conn.execute<{ id: number; code: string }[]>(
-          `SELECT id, code
-           FROM roles
-           WHERE id IN (${rolePlaceholders})`,
+        roleRows = await this.executeOn(
+          tx,
+          `SELECT id, code, requires_activities, requires_component FROM roles WHERE id IN (${rolePlaceholders})`,
           user.roleIds,
         );
-
-        const foundIdSet = new Set(roleRows.map((r) => Number(r.id)));
-        const missingRoleIds = user.roleIds.filter(
-          (id) => !foundIdSet.has(id),
-        );
-        if (missingRoleIds.length > 0) {
-          throw new UserRolesNotFoundError(missingRoleIds.map(String));
+        if (roleRows.length !== user.roleIds.length) {
+          const foundIds = new Set(roleRows.map((r) => Number(r.id)));
+          const missing = user.roleIds.filter((id) => !foundIds.has(id));
+          throw new UserRolesNotFoundError(missing.map(String));
         }
       }
 
-      const resolvedRoleCodes = roleRows.map((r) => r.code);
-      const isActivityLeader = resolvedRoleCodes.includes(
-        LIDER_ACTIVIDAD_ROLE_CODE,
+      // 4. Validar Reglas de Negocio (Componente vs Roles)
+      const requiresComponent = roleRows.some((r) =>
+        Boolean(r.requires_component),
       );
-      const hasActivities =
-        user.activityIds.length > 0 || user.activityCodes.length > 0;
+      const hasComponent = user.componentId !== null;
 
-      if (!isActivityLeader && hasActivities) {
-        throw new InvalidUserActivitiesRoleError();
+      if (requiresComponent !== hasComponent) {
+        throw new InvalidUserComponentRoleError();
       }
 
-      if (isActivityLeader && !hasActivities) {
+      // 5. Validar Reglas de Negocio (Actividades vs Roles)
+      const requiresActivities = roleRows.some((r) =>
+        Boolean(r.requires_activities),
+      );
+      const hasActivities = user.activityIds.length > 0;
+
+      if (requiresActivities && !hasActivities)
         throw new LeaderUserRequiresActivitiesError();
-      }
+      if (!requiresActivities && hasActivities)
+        throw new InvalidUserActivitiesRoleError();
 
-      let lockedActivities: LockedActivityRow[] = [];
-      if (user.activityIds.length > 0) {
-        const activityPlaceholders = this.placeholders(user.activityIds);
-        lockedActivities = await conn.execute<LockedActivityRow[]>(
-          `SELECT
-             a.id,
-             a.code,
-             ua.user_id AS leader_id,
-             u.email AS leader_email
-           FROM activities a
-           LEFT JOIN user_activities ua ON ua.activity_id = a.id
-           LEFT JOIN users u ON u.id = ua.user_id
-           WHERE a.id IN (${activityPlaceholders})
-           FOR UPDATE`,
+      // 6. Validar Actividades y Bloquear Filas (FOR UPDATE)
+      let lockedActivities: any[] = [];
+      if (hasActivities) {
+        const actPlaceholders = this.placeholders(user.activityIds);
+        lockedActivities = await this.executeOn(
+          tx,
+          `SELECT a.id, ua.user_id AS leader_id 
+           FROM activities a 
+           LEFT JOIN user_activities ua ON ua.activity_id = a.id 
+           WHERE a.id IN (${actPlaceholders}) FOR UPDATE`,
           user.activityIds,
         );
 
-        const foundActivityIds = new Set(
-          lockedActivities.map((row) => Number(row.id)),
-        );
-        const missingActivityIds = user.activityIds.filter(
-          (id) => !foundActivityIds.has(id),
-        );
-        if (missingActivityIds.length > 0) {
-          throw new UserActivitiesNotFoundError(missingActivityIds.map(String));
-        }
-      } else if (user.activityCodes.length > 0) {
-        const activityPlaceholders = this.placeholders(user.activityCodes);
-        lockedActivities = await conn.execute<LockedActivityRow[]>(
-          `SELECT
-             a.id,
-             a.code,
-             ua.user_id AS leader_id,
-             u.email AS leader_email
-           FROM activities a
-           LEFT JOIN user_activities ua ON ua.activity_id = a.id
-           LEFT JOIN users u ON u.id = ua.user_id
-           WHERE a.code IN (${activityPlaceholders})
-           FOR UPDATE`,
-          user.activityCodes,
-        );
-
-        const foundActivityCodes = new Set(
-          lockedActivities.map((row) => row.code),
-        );
-        const missingActivityCodes = user.activityCodes.filter(
-          (code) => !foundActivityCodes.has(code),
-        );
-        if (missingActivityCodes.length > 0) {
-          throw new UserActivitiesNotFoundError(missingActivityCodes);
+        if (lockedActivities.length !== user.activityIds.length) {
+          const foundIds = new Set(lockedActivities.map((a) => Number(a.id)));
+          const missing = user.activityIds.filter((id) => !foundIds.has(id));
+          throw new UserActivitiesNotFoundError(missing.map(String));
         }
       }
 
-      const existingUsers = await conn.execute<
-        { id: string; clerk_id: string; email: string }[]
-      >(
-        `SELECT id, clerk_id, email
-         FROM users
-         WHERE clerk_id = ? OR email = ?
-         FOR UPDATE`,
-        [user.clerkId, user.email],
+      // 7. Insertar / Actualizar Usuario
+      const existingUsers = await this.executeOn(
+        tx,
+        `SELECT id FROM users WHERE clerk_id = ? FOR UPDATE`,
+        [user.clerkId],
       );
 
-      const conflictingEmailUser = existingUsers.find(
-        (row) =>
-          row.email.toLowerCase() === user.email.toLowerCase() &&
-          row.clerk_id !== user.clerkId,
-      );
-      if (conflictingEmailUser) {
-        throw new UserEmailConflictError(user.email);
-      }
+      let userId: string;
 
-      const existingByClerkId = existingUsers.find(
-        (row) => row.clerk_id === user.clerkId,
-      );
-
-      let userId: string | undefined;
-
-      if (existingByClerkId) {
-        userId = existingByClerkId.id;
-        await conn.execute(
-          `UPDATE users
-           SET department_id = ?,
-               title = ?,
-               first_name = ?,
-               last_name = ?,
-               email = ?,
-               is_active = ?,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
+      if (existingUsers.length > 0) {
+        userId = existingUsers[0].id;
+        await this.executeOn(
+          tx,
+          `UPDATE users SET department_id=?, component_id=?, title=?, first_name=?, last_name=?, email=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
           [
             user.departmentId,
+            user.componentId,
             user.title,
             user.firstName,
             user.lastName,
             user.email,
-            user.isActive,
             userId,
           ],
         );
       } else {
-        const insertedRows = await conn.execute<{ id: string }[]>(
-          `INSERT INTO users
-             (clerk_id, department_id, title, first_name, last_name, email, is_active)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
-           RETURNING id`,
+        const insertResult = await this.executeOn(
+          tx,
+          `INSERT INTO users (clerk_id, department_id, component_id, title, first_name, last_name, email, is_active) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
           [
             user.clerkId,
             user.departmentId,
+            user.componentId,
             user.title,
             user.firstName,
             user.lastName,
@@ -229,103 +156,102 @@ export class UserMariaDBRepository
             user.isActive,
           ],
         );
-        userId = insertedRows[0]?.id;
+        userId = insertResult[0]?.id;
+        if (!userId) throw new UserNotCreatedError();
       }
 
-      if (!userId) {
-        throw new UserNotCreatedError();
-      }
-
-      if (lockedActivities.length > 0) {
-        const conflicts = lockedActivities
-          .filter((row) => row.leader_id !== null && row.leader_id !== userId)
-          .map((row) => ({
-            activityCode: row.code,
-            currentLeaderId: row.leader_id as string,
-            currentLeaderEmail: row.leader_email ?? null,
-          }));
-
-        if (conflicts.length > 0) {
-          throw new ActivityAlreadyHasLeaderError(conflicts);
-        }
-      }
-
-      for (const roleRow of roleRows) {
-        await conn.execute(
-          `INSERT IGNORE INTO user_roles (user_id, role_id)
-           VALUES (?, ?)`,
-          [userId, roleRow.id],
-        );
-      }
-
-      for (const activity of lockedActivities) {
-        await conn.execute(
-          `INSERT INTO user_activities (user_id, activity_id)
-           VALUES (?, ?)
-           ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
-          [userId, activity.id],
-        );
-      }
-
-      await conn.commit();
-
-      return userId as UserId;
-    } catch (error) {
-      await conn.rollback();
-
+      // 8. Validar que el Componente no tenga otro líder
       if (
-        error instanceof UserDepartmentNotFoundError ||
-        error instanceof UserRolesNotFoundError ||
-        error instanceof UserActivitiesNotFoundError ||
-        error instanceof UserEmailConflictError ||
-        error instanceof ActivityAlreadyHasLeaderError ||
-        error instanceof InvalidUserActivitiesRoleError ||
-        error instanceof LeaderUserRequiresActivitiesError ||
-        error instanceof UserNotCreatedError
+        currentComponentLeaderId !== null &&
+        currentComponentLeaderId !== userId
       ) {
-        throw error;
+        throw new ComponentAlreadyHasLeaderError(
+          user.componentId as number,
+          currentComponentLeaderId,
+        );
       }
 
-      if (isDuplicateEntry(error)) {
-        throw new UserAlreadyExistsError(user.email);
+      // 9. Validar que las actividades no tengan otro líder (conflicto)
+      const conflicts = lockedActivities.filter(
+        (a) => a.leader_id !== null && a.leader_id !== userId,
+      );
+      if (conflicts.length > 0) {
+        throw new ActivityAlreadyHasLeaderError(
+          conflicts.map((c) => ({
+            activityId: Number(c.id),
+            currentLeaderId: c.leader_id,
+            currentLeaderEmail: null,
+          })),
+        );
       }
+
+      // 10. Insertar Roles y Actividades
+      for (const role of roleRows) {
+        await this.executeOn(
+          tx,
+          `INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)`,
+          [userId, role.id],
+        );
+      }
+      for (const act of lockedActivities) {
+        await this.executeOn(
+          tx,
+          `INSERT INTO user_activities (user_id, activity_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id=VALUES(user_id)`,
+          [userId, act.id],
+        );
+      }
+
+      return userId;
+    }).catch((error) => {
+      // Manejo de errores SQL al final de la transacción
+      if (error instanceof Error && error.name.includes('Error')) throw error;
+
+      if (isDuplicateEntry(error)) throw new UserAlreadyExistsError(user.email);
 
       if (isForeignKeyViolation(error)) {
-        throw new UserDepartmentNotFoundError(user.departmentId);
+        const col = foreignKeyColumn(error);
+        if (col === 'department_id')
+          throw new UserDepartmentNotFoundError(user.departmentId);
+        if (col === 'component_id')
+          throw new UserComponentNotFoundError(user.componentId as number);
       }
 
       throw new UserNotCreatedError();
-    } finally {
-      await conn.release();
-    }
+    });
   }
 
   async hasActiveRole(clerkId: string, roleCode: string): Promise<boolean> {
     const rows = await this.execute(
-      `SELECT 1 AS has_role
-       FROM users u
-       INNER JOIN user_roles ur ON ur.user_id = u.id
-       INNER JOIN roles r ON r.id = ur.role_id
-       WHERE u.clerk_id = ?
-         AND u.is_active = TRUE
-         AND r.code = ?
-       LIMIT 1`,
+      `SELECT 1 FROM users u 
+       INNER JOIN user_roles ur ON ur.user_id = u.id 
+       INNER JOIN roles r ON r.id = ur.role_id 
+       WHERE u.clerk_id = ? AND u.is_active = TRUE AND r.code = ? LIMIT 1`,
       [clerkId, roleCode],
     );
-
     return rows.length > 0;
   }
 
-  protected toDomain(row: DatabaseUserRow): User {
-    return new User({
+  async existsByEmail(email: string): Promise<boolean> {
+    const rows = await this.execute(
+      `SELECT 1 FROM users WHERE email = ? LIMIT 1`,
+      [email],
+    );
+    return rows.length > 0;
+  }
+
+  protected toDomain(row: any): User {
+    return User.rehydrate({
       id: row.id,
       clerkId: row.clerk_id,
       departmentId: row.department_id,
+      componentId: row.component_id,
       title: row.title,
       firstName: row.first_name,
       lastName: row.last_name,
       email: row.email,
       isActive: Boolean(row.is_active),
+      roleIds: [],
+      activityIds: [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     });

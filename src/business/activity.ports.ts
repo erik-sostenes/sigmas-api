@@ -8,7 +8,7 @@ export abstract class ActivityLogicI {
 }
 
 export abstract class ActivityRepositoryI {
-  abstract findAll(componentId?: number): Promise<ActivityItem[]>;
+  abstract findAll(): Promise<ActivityItem[]>;
   abstract findByComponentId(componentId: number): Promise<ActivityItem[]>;
+  abstract findByIds(ids: number[]): Promise<ActivityItem[]>;
 }
-

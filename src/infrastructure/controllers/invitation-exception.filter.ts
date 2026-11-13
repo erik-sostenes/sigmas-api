@@ -6,28 +6,36 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
-  ClerkInvitationError,
-  InvalidInvitationActivitiesRoleError,
   InvalidInvitationError,
-  InvitationActivitiesNotFoundError,
-  InvitationActivityAlreadyHasLeaderError,
-  InvitationDepartmentNotFoundError,
-  InvitationRoleIdsNotFoundError,
-  InvitationRolesNotFoundError,
   InvitationUserAlreadyExistsError,
-  LeaderInvitationRequiresActivitiesError,
+  InvitationAlreadyPendingError,
+  InvitationDepartmentNotFoundError,
+  InvitationComponentNotFoundError,
+  InvitationComponentAlreadyHasLeaderError,
+  InvitationRoleIdsNotFoundError,
+  InvitationActivitiesNotFoundError,
+  InvalidInvitationActivitiesRoleError,
+  InvitationRequiresActivitiesError,
+  InvitationComponentRoleMismatchError,
+  InvitationActivityAlreadyHasLeaderError,
+  InvitationNotFoundError,
+  ClerkInvitationError,
 } from '../../business/invitation.errors';
 
 @Catch(
   InvalidInvitationError,
   InvitationUserAlreadyExistsError,
+  InvitationAlreadyPendingError,
   InvitationDepartmentNotFoundError,
+  InvitationComponentNotFoundError,
+  InvitationComponentAlreadyHasLeaderError,
   InvitationRoleIdsNotFoundError,
-  InvitationRolesNotFoundError,
   InvitationActivitiesNotFoundError,
   InvalidInvitationActivitiesRoleError,
-  LeaderInvitationRequiresActivitiesError,
+  InvitationRequiresActivitiesError,
+  InvitationComponentRoleMismatchError,
   InvitationActivityAlreadyHasLeaderError,
+  InvitationNotFoundError,
   ClerkInvitationError,
 )
 export class InvitationExceptionFilter implements ExceptionFilter {
@@ -36,23 +44,37 @@ export class InvitationExceptionFilter implements ExceptionFilter {
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
 
+    // 400 - Bad Request (Errores de validación de datos)
     if (error instanceof InvalidInvitationError) {
       status = HttpStatus.BAD_REQUEST;
-    } else if (
+    }
+    // 404 - Not Found (Recursos que se buscan por ID y no existen)
+    else if (error instanceof InvitationNotFoundError) {
+      status = HttpStatus.NOT_FOUND;
+    }
+    // 409 - Conflict (Duplicados o Puestos ya ocupados)
+    else if (
       error instanceof InvitationUserAlreadyExistsError ||
+      error instanceof InvitationAlreadyPendingError ||
+      error instanceof InvitationComponentAlreadyHasLeaderError ||
       error instanceof InvitationActivityAlreadyHasLeaderError
     ) {
       status = HttpStatus.CONFLICT;
-    } else if (
+    }
+    // 422 - Unprocessable Entity (Reglas de negocio rotas o FKs inexistentes)
+    else if (
       error instanceof InvitationDepartmentNotFoundError ||
+      error instanceof InvitationComponentNotFoundError ||
       error instanceof InvitationRoleIdsNotFoundError ||
-      error instanceof InvitationRolesNotFoundError ||
       error instanceof InvitationActivitiesNotFoundError ||
       error instanceof InvalidInvitationActivitiesRoleError ||
-      error instanceof LeaderInvitationRequiresActivitiesError
+      error instanceof InvitationRequiresActivitiesError ||
+      error instanceof InvitationComponentRoleMismatchError
     ) {
       status = HttpStatus.UNPROCESSABLE_ENTITY;
-    } else if (error instanceof ClerkInvitationError) {
+    }
+    // 502 - Bad Gateway (Fallo al comunicarse con Clerk)
+    else if (error instanceof ClerkInvitationError) {
       status = HttpStatus.BAD_GATEWAY;
     }
 
@@ -63,4 +85,3 @@ export class InvitationExceptionFilter implements ExceptionFilter {
     });
   }
 }
-

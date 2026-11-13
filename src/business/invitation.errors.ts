@@ -12,6 +12,13 @@ export class InvitationUserAlreadyExistsError extends Error {
   }
 }
 
+export class InvitationAlreadyPendingError extends Error {
+  constructor(email: string) {
+    super(`Ya existe una invitación pendiente para el correo '${email}'.`);
+    this.name = 'InvitationAlreadyPendingError';
+  }
+}
+
 export class InvitationDepartmentNotFoundError extends Error {
   constructor(departmentId: number) {
     super(
@@ -21,15 +28,19 @@ export class InvitationDepartmentNotFoundError extends Error {
   }
 }
 
-export class InvitationRolesNotFoundError extends Error {
-  readonly missingRoleCodes: string[];
+export class InvitationComponentNotFoundError extends Error {
+  constructor(componentId: number) {
+    super(`El componente con ID ${componentId} no existe.`);
+    this.name = 'InvitationComponentNotFoundError';
+  }
+}
 
-  constructor(missingRoleCodes: string[]) {
+export class InvitationComponentAlreadyHasLeaderError extends Error {
+  constructor(componentId: number) {
     super(
-      `Los siguientes códigos de rol no existen: ${missingRoleCodes.join(', ')}.`,
+      `El componente con ID ${componentId} ya tiene un líder asignado (en usuarios o en otra invitación).`,
     );
-    this.name = 'InvitationRolesNotFoundError';
-    this.missingRoleCodes = missingRoleCodes;
+    this.name = 'InvitationComponentAlreadyHasLeaderError';
   }
 }
 
@@ -46,63 +57,70 @@ export class InvitationRoleIdsNotFoundError extends Error {
 }
 
 export class InvitationActivitiesNotFoundError extends Error {
-  readonly missingActivityCodes: string[];
+  readonly missingActivityIds: number[];
 
-  constructor(missingActivityCodes: string[]) {
+  constructor(missingActivityIds: number[]) {
     super(
-      `Las siguientes actividades no existen: ${missingActivityCodes.join(', ')}.`,
+      `Las siguientes actividades no existen: ${missingActivityIds.join(', ')}.`,
     );
     this.name = 'InvitationActivitiesNotFoundError';
-    this.missingActivityCodes = missingActivityCodes;
+    this.missingActivityIds = missingActivityIds;
   }
 }
 
+// Errores de reglas de negocio cruzadas
 export class InvalidInvitationActivitiesRoleError extends Error {
   constructor() {
     super(
-      "Solo se pueden asignar actividades cuando la invitación incluye el rol 'lider_actividad'.",
+      'Solo se pueden asignar actividades cuando el rol seleccionado las requiere.',
     );
     this.name = 'InvalidInvitationActivitiesRoleError';
   }
 }
 
-export class LeaderInvitationRequiresActivitiesError extends Error {
+export class InvitationRequiresActivitiesError extends Error {
+  constructor() {
+    super('El rol seleccionado requiere asignar al menos una actividad.');
+    this.name = 'InvitationRequiresActivitiesError';
+  }
+}
+
+export class InvitationComponentRoleMismatchError extends Error {
   constructor() {
     super(
-      "El rol 'lider_actividad' requiere seleccionar al menos una actividad.",
+      "Si asigna un componente, es obligatorio incluir el rol 'lider_componente'. Y viceversa.",
     );
-    this.name = 'LeaderInvitationRequiresActivitiesError';
+    this.name = 'InvitationComponentRoleMismatchError';
   }
 }
 
 export interface InvitationActivityConflictItem {
-  activityCode: string;
-  currentLeaderId: string;
-  currentLeaderEmail: string | null;
+  activityId: number;
 }
 
 export class InvitationActivityAlreadyHasLeaderError extends Error {
   readonly conflicts: InvitationActivityConflictItem[];
 
   constructor(conflicts: InvitationActivityConflictItem[]) {
-    const detail = conflicts
-      .map((item) =>
-        item.currentLeaderEmail
-          ? `${item.activityCode} (líder actual: ${item.currentLeaderEmail})`
-          : `${item.activityCode} (líder actual: ${item.currentLeaderId})`,
-      )
-      .join(', ');
+    const detail = conflicts.map((item) => `ID ${item.activityId}`).join(', ');
     super(
-      `No se puede enviar la invitación porque las siguientes actividades ya tienen un líder asignado: ${detail}.`,
+      `No se puede enviar la invitación porque las siguientes actividades ya tienen un líder: ${detail}.`,
     );
     this.name = 'InvitationActivityAlreadyHasLeaderError';
     this.conflicts = conflicts;
   }
 }
 
+export class InvitationNotFoundError extends Error {
+  constructor(id: string) {
+    super(`La invitación con ID '${id}' no existe.`);
+    this.name = 'InvitationNotFoundError';
+  }
+}
+
 export class ClerkInvitationError extends Error {
   constructor(message: string) {
-    super(`Error al enviar la invitación: ${message}`);
+    super(`Error al interactuar con Clerk: ${message}`);
     this.name = 'ClerkInvitationError';
   }
 }

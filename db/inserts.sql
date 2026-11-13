@@ -55,18 +55,17 @@ INSERT INTO funding_sources (code, name) VALUES
 INSERT INTO components (code, name, administrative_unit_id) VALUES
     ('01', 'ESTUDIANTES DEL NIVEL SUPERIOR DE EDUCACIÓN EN INSTITUCIONES PÚBLICAS FORMADOS',
         (SELECT id FROM administrative_units WHERE code = '1000')),
-
     ('02', 'SERVICIOS DE EXTENSIÓN Y VINCULACIÓN DE EDUCACIÓN SUPERIOR OTORGADOS',
         (SELECT id FROM administrative_units WHERE code = '2000')),
-
     ('03', 'INVESTIGACIÓN CIENTÍFICA, TECNOLÓGICA Y EDUCATIVA DESARROLLADA',
         (SELECT id FROM administrative_units WHERE code = '3000')),
-
     ('04', 'INSTRUMENTOS DE PLANEACIÓN ESTRATÉGICA EVALUADOS',
         (SELECT id FROM administrative_units WHERE code = '4000')),
-
     ('05', 'NECESIDADES DE LA COMUNIDAD EDUCATIVA DE LAS INSTITUCIONES DE EDUCACIÓN SUPERIOR ATENDIDAS',
-        (SELECT id FROM administrative_units WHERE code = '5000'));
+        (SELECT id FROM administrative_units WHERE code = '5000'))
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name),
+    administrative_unit_id = VALUES(administrative_unit_id);
 
 -- ------------------------------------------------------------
 
@@ -77,75 +76,58 @@ INSERT INTO activities (component_id, code, name) VALUES
     -- C1
     ((SELECT id FROM components WHERE code = '01'), '01',
         'SEGUIMIENTO AL PROCESO DE SERVICIO SOCIAL, RESIDENCIAS O ESTADÍAS PROFESIONALES E INTERNADO DE PREGRADO DEL ESTUDIANTADO'),
-
     ((SELECT id FROM components WHERE code = '01'), '02',
         'ELABORACIÓN DE ESTUDIOS DE PERTINENCIA Y FACTIBILIDAD DE LA OFERTA EDUCATIVA DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '01'), '03',
         'EVALUACIÓN ACADÉMICA AL ESTUDIANTADO DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '01'), '04',
         'IMPARTICIÓN DE ACTIVIDADES EXTRACURRICULARES EN EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '01'), '05',
         'ATENCIÓN COMPENSATORIA A ESTUDIANTES DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '01'), '06',
         'CAPACITACIÓN DEL PERSONAL DOCENTE DE INSTITUCIONES DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '01'), '07',
         'OTORGAMIENTO DE BECAS INSTITUCIONALES A ESTUDIANTES DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '01'), '08',
         'DISTRIBUCIÓN DE MATERIAL DIDÁCTICO A DOCENTES DE EDUCACIÓN SUPERIOR'),
 
     -- C2
     ((SELECT id FROM components WHERE code = '02'), '01',
         'OTORGAMIENTO DE SERVICIOS DE EDUCACIÓN CONTINUA Y TECNOLÓGICOS DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '02'), '02',
         'DIFUSIÓN INSTITUCIONAL DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '02'), '03',
         'OTORGAMIENTO DE ORIENTACIÓN PROFESIOGRÁFICA PARA LA EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '02'), '04',
         'FIRMA DE CONVENIOS DE COLABORACIÓN EN EDUCACIÓN SUPERIOR'),
 
     -- C3
     ((SELECT id FROM components WHERE code = '03'), '01',
         'SELECCIÓN DE PROYECTOS DE INVESTIGACIÓN CIENTÍFICA Y TECNOLÓGICA DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '03'), '02',
         'DIVULGACIÓN DE INVESTIGACIÓN CIENTÍFICA Y TECNOLÓGICA DE EDUCACIÓN SUPERIOR'),
 
     -- C4
     ((SELECT id FROM components WHERE code = '04'), '01',
         'APLICACIÓN DE EVALUACIONES INSTITUCIONALES A LOS PROGRAMAS EDUCATIVOS'),
-
     ((SELECT id FROM components WHERE code = '04'), '02',
         'EVALUACIÓN A DOCENTES DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '04'), '03',
         'ACTUALIZACIÓN DE MÓDULOS DE SISTEMAS DE INFORMACIÓN EN LA INSTITUCIÓN EDUCATIVA'),
 
     -- C5
     ((SELECT id FROM components WHERE code = '05'), '01',
         'CAPACITACIÓN A PERSONAL ADMINISTRATIVO DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '05'), '02',
         'UTILIZACIÓN DE LA CAPACIDAD FÍSICA INSTALADA PARA LAS ACTIVIDADES ACADÉMICAS EN INSTITUCIONES DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '05'), '03',
         'MANTENIMIENTO A LA INFRAESTRUCTURA FÍSICA EDUCATIVA DE EDUCACIÓN SUPERIOR'),
-
     ((SELECT id FROM components WHERE code = '05'), '04',
         'EJECUCIÓN DE PROYECTOS DE INVERSIÓN'),
-
     ((SELECT id FROM components WHERE code = '05'), '05',
-        'ADMINISTRACIÓN DE RECAUDACIÓN DE INGRESOS PROPIOS');
-
-
+        'ADMINISTRACIÓN DE RECAUDACIÓN DE INGRESOS PROPIOS')
+ON DUPLICATE KEY UPDATE
+    name = VALUES(name);
 -- ------------------------------------------------------------
 -- measurement_units
 -- ------------------------------------------------------------
@@ -618,15 +600,18 @@ INSERT INTO budget_items (code, name) VALUES
 -- ------------------------------------------------------------
 -- roles
 -- ------------------------------------------------------------
-INSERT INTO roles (code, name) VALUES
-    ('solicitante', 'Solicitante'),
-    ('lider_actividad', 'Líder de actividad'),
-    ('suficiencia_presupuestal', 'Suficiencia presupuestal'),
-    ('recursos_materiales', 'Recursos materiales y servicios'),
-    ('servicios_administrativos', 'Servicios administrativos'),
-    ('admin', 'Administrador')
-ON DUPLICATE KEY UPDATE
-    name = VALUES(name);
+INSERT INTO roles (code, name, requires_activities, requires_component) VALUES
+    ('solicitante', 'Solicitante', FALSE, FALSE),
+    ('lider_actividad', 'Líder de actividad', TRUE, FALSE),
+    ('lider_componente', 'Líder de componente', FALSE, TRUE), -- <-- Nuevo rol mapeado
+    ('suficiencia_presupuestal', 'Suficiencia presupuestal', FALSE, FALSE),
+    ('recursos_materiales', 'Recursos materiales y servicios', FALSE, FALSE),
+    ('servicios_administrativos', 'Servicios administrativos', FALSE, FALSE),
+    ('super_admin', 'Super Administrador', FALSE, FALSE)
+ON DUPLICATE KEY UPDATE 
+    name = VALUES(name),
+    requires_activities = VALUES(requires_activities),
+    requires_component = VALUES(requires_component);
 
 -- ------------------------------------------------------------
 -- isos

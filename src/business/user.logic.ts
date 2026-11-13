@@ -1,54 +1,48 @@
 import { Injectable } from '@nestjs/common';
 import { User, UserId } from './user.model';
 import { UserLogicI, UserRepositoryI } from './user.ports';
-import { LIDER_ACTIVIDAD_ROLE_CODE } from './user-assignment.model';
-import {
-  InvalidUserActivitiesRoleError,
-  InvalidUserAssignmentError,
-  LeaderUserRequiresActivitiesError,
-} from './user.errors';
+import { InvitationRepositoryI } from './invitation.ports';
 
 @Injectable()
 export class UserLogic implements UserLogicI {
-  constructor(private readonly userRepository: UserRepositoryI) {}
+  constructor(
+    private readonly userRepository: UserRepositoryI,
+    private readonly invitationRepository: InvitationRepositoryI,
+  ) {}
 
-  async create(user: User): Promise<UserId> {
-    if (!user.clerkId || !user.email) {
-      throw new InvalidUserAssignmentError(
-        'El identificador de Clerk y el correo electrónico son obligatorios.',
-      );
+  async createFromInvitation(
+    clerkId: string,
+    email: string,
+  ): Promise<UserId | null> {
+    // 1. Buscar la invitación
+    const invitation = await this.invitationRepository.findByEmail(email);
+
+    // Si no hay invitación, ignoramos el evento (ej. Super Admin creado desde Clerk)
+    if (!invitation) {
+      return null;
     }
 
-    if (!Number.isInteger(user.departmentId) || user.departmentId < 1) {
-      throw new InvalidUserAssignmentError(
-        'El ID de departamento debe ser un entero positivo.',
-      );
+    // 2. Armar la entidad User con los datos de la invitación
+    const user = User.create({
+      clerkId: clerkId,
+      email: invitation.email,
+      firstName: invitation.firstName,
+      lastName: invitation.lastName,
+      departmentId: invitation.departmentId,
+      componentId: invitation.componentId,
+      title: invitation.title,
+      roleIds: invitation.roleIds,
+      activityIds: invitation.activityIds,
+    });
+
+    // 3. Guardar en BD (UserMariaDBRepository ya hace las validaciones pesadas)
+    const userId = await this.userRepository.save(user);
+
+    // 4. Borrar la invitación (ya se usó)
+    if (invitation.id) {
+      await this.invitationRepository.delete(invitation.id);
     }
 
-    if (user.roleCodes.length === 0 && user.roleIds.length === 0) {
-      throw new InvalidUserAssignmentError(
-        'El usuario debe tener al menos un rol asignado.',
-      );
-    }
-
-    const hasActivities =
-      user.activityIds.length > 0 || user.activityCodes.length > 0;
-    const hasRoleCodes = user.roleCodes.length > 0;
-
-    if (hasRoleCodes) {
-      const isActivityLeader = user.roleCodes.includes(
-        LIDER_ACTIVIDAD_ROLE_CODE,
-      );
-
-      if (!isActivityLeader && hasActivities) {
-        throw new InvalidUserActivitiesRoleError();
-      }
-
-      if (isActivityLeader && !hasActivities) {
-        throw new LeaderUserRequiresActivitiesError();
-      }
-    }
-
-    return await this.userRepository.save(user);
+    return userId;
   }
 }

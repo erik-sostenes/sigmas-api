@@ -6,14 +6,11 @@ import { ActivityLogicI, ActivityRepositoryI } from './activity.ports';
 export class ActivityLogic implements ActivityLogicI {
   constructor(private readonly activityRepository: ActivityRepositoryI) {}
 
-  async getActivities(componentId?: number): Promise<ActivityItem[]> {
-    return await this.activityRepository.findAll(componentId);
+  async getActivities(): Promise<ActivityItem[]> {
+    return await this.activityRepository.findAll();
   }
 
-  async getActivitiesByComponent(
-    componentId: number,
-  ): Promise<ActivityItem[]> {
+  async getActivitiesByComponent(componentId: number): Promise<ActivityItem[]> {
     return await this.activityRepository.findByComponentId(componentId);
   }
 }
-

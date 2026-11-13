@@ -1,107 +1,112 @@
-export class UserAlreadyExistsError extends Error {
-  constructor(identifier: string) {
-    super(
-      `El usuario con identificador o correo '${identifier}' ya está registrado.`,
-    );
-    this.name = 'UserAlreadyExistsError';
-  }
-}
-
-export class UserEmailConflictError extends Error {
-  constructor(email: string) {
-    super(
-      `El correo '${email}' ya está asociado a otra cuenta registrada en el sistema.`,
-    );
-    this.name = 'UserEmailConflictError';
-  }
-}
-
-export class UserDepartmentNotFoundError extends Error {
-  constructor(departmentId: number) {
-    super(
-      `El departamento con ID ${departmentId} no existe o no se encuentra activo.`,
-    );
-    this.name = 'UserDepartmentNotFoundError';
-  }
-}
-
-export class UserRolesNotFoundError extends Error {
-  readonly missingRoleCodes: string[];
-
-  constructor(missingRoleCodes: string[]) {
-    super(
-      `Los siguientes códigos de rol no existen: ${missingRoleCodes.join(', ')}.`,
-    );
-    this.name = 'UserRolesNotFoundError';
-    this.missingRoleCodes = missingRoleCodes;
-  }
-}
-
-export class UserActivitiesNotFoundError extends Error {
-  readonly missingActivityCodes: string[];
-
-  constructor(missingActivityCodes: string[]) {
-    super(
-      `Las siguientes actividades no existen: ${missingActivityCodes.join(', ')}.`,
-    );
-    this.name = 'UserActivitiesNotFoundError';
-    this.missingActivityCodes = missingActivityCodes;
-  }
-}
-
-export class InvalidUserAssignmentError extends Error {
+export abstract class UserDomainError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'InvalidUserAssignmentError';
+    this.name = this.constructor.name;
   }
 }
 
-export class InvalidUserActivitiesRoleError extends Error {
-  constructor() {
-    super(
-      "Solo se pueden asignar actividades cuando el usuario incluye el rol 'lider_actividad'.",
-    );
-    this.name = 'InvalidUserActivitiesRoleError';
+export class InvalidUserError extends UserDomainError {}
+
+export class InvalidUserFieldError extends InvalidUserError {
+  constructor(field: string, reason: string) {
+    super(`El campo '${field}' es inválido: ${reason}`);
   }
 }
 
-export class LeaderUserRequiresActivitiesError extends Error {
+export class InvalidUserComponentRoleError extends InvalidUserError {
   constructor() {
     super(
-      "El rol 'lider_actividad' requiere asignar al menos una actividad al usuario.",
+      'El rol seleccionado requiere un componente, o se envió un componente sin el rol correspondiente.',
     );
-    this.name = 'LeaderUserRequiresActivitiesError';
+  }
+}
+
+export class InvalidUserActivitiesRoleError extends InvalidUserError {
+  constructor() {
+    super(
+      'Solo se pueden asignar actividades cuando el rol seleccionado las requiere.',
+    );
+  }
+}
+
+export class LeaderUserRequiresActivitiesError extends InvalidUserError {
+  constructor() {
+    super('El rol seleccionado requiere asignar al menos una actividad.');
+  }
+}
+
+export class ComponentAlreadyHasLeaderError extends UserDomainError {
+  constructor(componentId: number, currentLeaderId: string) {
+    super(
+      `El componente con ID ${componentId} ya tiene un líder asignado (ID: ${currentLeaderId}).`,
+    );
+  }
+}
+
+export class UserDepartmentNotFoundError extends UserDomainError {
+  constructor(departmentId: number) {
+    super(`El departamento con ID ${departmentId} no existe.`);
+  }
+}
+
+export class UserComponentNotFoundError extends UserDomainError {
+  constructor(componentId: number) {
+    super(`El componente con ID ${componentId} no existe.`);
+  }
+}
+
+export class UserRolesNotFoundError extends UserDomainError {
+  constructor(missingRoleIds: string[]) {
+    super(
+      `Los siguientes IDs de rol no existen: ${missingRoleIds.join(', ')}.`,
+    );
+  }
+}
+
+export class UserActivitiesNotFoundError extends UserDomainError {
+  constructor(missingActivityIds: string[]) {
+    super(
+      `Los siguientes IDs de actividad no existen: ${missingActivityIds.join(', ')}.`,
+    );
   }
 }
 
 export interface ActivityLeaderConflictItem {
-  activityCode: string;
+  activityId: number;
   currentLeaderId: string;
   currentLeaderEmail: string | null;
 }
 
-export class ActivityAlreadyHasLeaderError extends Error {
+export class ActivityAlreadyHasLeaderError extends UserDomainError {
   readonly conflicts: ActivityLeaderConflictItem[];
-
   constructor(conflicts: ActivityLeaderConflictItem[]) {
     const detail = conflicts
-      .map((item) =>
-        item.currentLeaderEmail
-          ? `${item.activityCode} (líder actual: ${item.currentLeaderEmail})`
-          : `${item.activityCode} (líder actual: ${item.currentLeaderId})`,
+      .map(
+        (c) =>
+          `Actividad ID ${c.activityId} (Líder actual: ${c.currentLeaderEmail || c.currentLeaderId})`,
       )
       .join(', ');
     super(
       `Conflicto de asignación: las siguientes actividades ya pertenecen a otro líder: ${detail}.`,
     );
-    this.name = 'ActivityAlreadyHasLeaderError';
     this.conflicts = conflicts;
   }
 }
 
-export class UserNotCreatedError extends Error {
+export class UserAlreadyExistsError extends UserDomainError {
+  constructor(email: string) {
+    super(`El usuario con correo '${email}' ya está registrado.`);
+  }
+}
+
+export class UserEmailConflictError extends UserDomainError {
+  constructor(email: string) {
+    super(`El correo '${email}' ya está asociado a otra cuenta.`);
+  }
+}
+
+export class UserNotCreatedError extends UserDomainError {
   constructor() {
     super('No se pudo registrar el usuario en la base de datos.');
-    this.name = 'UserNotCreatedError';
   }
 }

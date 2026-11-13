@@ -1,8 +1,9 @@
 import { Inject } from '@nestjs/common';
-import type { Pool } from 'mariadb';
+import type { Pool, PoolConnection } from 'mariadb';
 import { MARIADB_POOL } from './mariadb.connection';
 
 export type Row = Record<string, any>;
+export type Tx = PoolConnection;
 
 export abstract class MariaDBRepository<T> {
   constructor(@Inject(MARIADB_POOL) protected readonly pool: Pool) {}
@@ -38,5 +39,30 @@ export abstract class MariaDBRepository<T> {
 
   protected placeholders(values: unknown[]): string {
     return values.map(() => '?').join(', ');
+  }
+
+  protected async withTransaction<R>(fn: (tx: Tx) => Promise<R>): Promise<R> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const result = await fn(conn);
+      await conn.commit();
+      return result;
+    } catch (error) {
+      try {
+        await conn.rollback();
+      } catch {}
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  protected async executeOn(
+    tx: Tx,
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<Row[]> {
+    return (await tx.execute(sql, params)) as unknown as Row[];
   }
 }

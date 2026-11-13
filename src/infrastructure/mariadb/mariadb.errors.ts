@@ -17,3 +17,10 @@ export function isDuplicateEntry(error: unknown): boolean {
 export function isForeignKeyViolation(error: unknown): boolean {
   return isSqlError(error) && error.errno === MariaDBErrno.NO_REFERENCED_ROW;
 }
+
+export function foreignKeyColumn(error: unknown): string | null {
+  if (!isSqlError(error)) return null;
+  const msg = error.sqlMessage ?? error.message ?? '';
+  const match = msg.match(/FOREIGN KEY \(`([^`]+)`\)/i);
+  return match ? match[1] : null;
+}

@@ -9,7 +9,6 @@ import type { Response } from 'express';
 import {
   ActivityAlreadyHasLeaderError,
   InvalidUserActivitiesRoleError,
-  InvalidUserAssignmentError,
   LeaderUserRequiresActivitiesError,
   UserActivitiesNotFoundError,
   UserAlreadyExistsError,
@@ -25,7 +24,6 @@ import {
   UserDepartmentNotFoundError,
   UserRolesNotFoundError,
   UserActivitiesNotFoundError,
-  InvalidUserAssignmentError,
   InvalidUserActivitiesRoleError,
   LeaderUserRequiresActivitiesError,
   ActivityAlreadyHasLeaderError,
@@ -56,7 +54,6 @@ export class UserExceptionFilter implements ExceptionFilter {
       error instanceof UserDepartmentNotFoundError ||
       error instanceof UserRolesNotFoundError ||
       error instanceof UserActivitiesNotFoundError ||
-      error instanceof InvalidUserAssignmentError ||
       error instanceof InvalidUserActivitiesRoleError ||
       error instanceof LeaderUserRequiresActivitiesError
     ) {
