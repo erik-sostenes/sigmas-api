@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { PurchaseRequestLogicI } from '../../business/purchase-request.ports';
 import { PurchaseRequest } from '../../business/purchase-request.model';
-import { CreatePurchaseRequestDto } from './create-purchase-request.dto';
+import { CreatePurchaseRequestDto } from './purchase-request.dto';
 import { PurchaseRequestExceptionFilter } from './domain-exception.filter';
 
 @Controller('api/v1/purchase-requests')
@@ -23,7 +23,7 @@ export class PurchaseRequestController {
       requestedBy: dto.requestedBy,
       purchaseType: dto.purchaseType,
       justification: dto.justification,
-      iso: dto.iso,
+      isos: dto.isos,
       totalAmountEstimated: dto.totalAmountEstimated,
     });
 
