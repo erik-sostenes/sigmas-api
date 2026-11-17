@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Param,
   Post,
   HttpCode,
@@ -21,6 +22,12 @@ import { CreateInvitationDto } from './invitation.dto';
 @UseFilters(InvitationExceptionFilter)
 export class InvitationController {
   constructor(private readonly invitationLogic: InvitationLogicI) {}
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  async findAll(): Promise<Invitation[]> {
+    return await this.invitationLogic.getInvitations();
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
