@@ -7,9 +7,11 @@ import {
 } from '../../business/purchase-request.model';
 import type { PurchaseRequestRepositoryI } from '../../business/purchase-request.ports';
 import { isForeignKeyViolation } from './mariadb.errors';
-import { MariaDBRepository, type Row } from './mariadb.repository';
+import { MariaDBRepository } from './mariadb.repository';
 import {
+  InvalidPurchaseRequestError,
   PurchaseRequesterNotFoundError,
+  PurchaseRequestIsosNotFoundError,
   PurchaseRequestNotCreatedError,
 } from '../../business/purchase-request.errors';
 
@@ -19,7 +21,7 @@ type DatabasePurchaseRequestRow = {
   requested_by: string;
   status: RequestStatus;
   purchase_type: PurchaseType;
-  isos: string | string[];
+  iso_ids: unknown;
   justification: string;
   total_amount_estimated: string | number; // DECIMAL
   total_amount_final: string | number; // DECIMAL
@@ -33,51 +35,99 @@ export class PurchaseRequestRepository
   implements PurchaseRequestRepositoryI
 {
   async save(request: PurchaseRequest): Promise<PurchaseRequestID> {
-    let rows: Row[];
+    request.validate();
 
-    try {
-      rows = await this.execute(
+    return this.withTransaction(async (tx) => {
+      // 1. Validar que existan todas las ISOs solicitadas
+      const isoPlaceholders = this.placeholders(request.isoIds);
+      const isoRows = await this.executeOn(
+        tx,
+        `SELECT id FROM isos WHERE id IN (${isoPlaceholders})`,
+        request.isoIds,
+      );
+
+      if (isoRows.length !== request.isoIds.length) {
+        const foundIds = new Set(isoRows.map((r) => Number(r.id)));
+        const missing = request.isoIds.filter((id) => !foundIds.has(id));
+        throw new PurchaseRequestIsosNotFoundError(missing);
+      }
+
+      // 2. Insertar la solicitud de compra
+      const rows = await this.executeOn(
+        tx,
         `INSERT INTO purchase_requests
-           (requested_by, purchase_type, isos, justification, total_amount_estimated)
-         VALUES (?, ?, ?, ?, ?)
+           (requested_by, purchase_type, justification, total_amount_estimated)
+         VALUES (?, ?, ?, ?)
          RETURNING id`,
         [
           request.requestedBy,
           request.purchaseType,
-          JSON.stringify(request.isos),
           request.justification,
           request.totalAmountEstimated,
         ],
       );
-    } catch (error) {
+
+      const id = rows[0]?.id as PurchaseRequestID | undefined;
+      if (!id) {
+        throw new PurchaseRequestNotCreatedError();
+      }
+
+      // 3. Insertar relación purchase_request_isos (igual que user_roles)
+      for (const isoId of request.isoIds) {
+        await this.executeOn(
+          tx,
+          `INSERT IGNORE INTO purchase_request_isos (purchase_request_id, iso_id) VALUES (?, ?)`,
+          [id, isoId],
+        );
+      }
+
+      return id;
+    }).catch((error) => {
+      if (
+        error instanceof InvalidPurchaseRequestError ||
+        error instanceof PurchaseRequestIsosNotFoundError ||
+        error instanceof PurchaseRequestNotCreatedError
+      ) {
+        throw error;
+      }
+
       if (isForeignKeyViolation(error)) {
         throw new PurchaseRequesterNotFoundError(request.requestedBy);
       }
 
       console.log(error);
       throw new PurchaseRequestNotCreatedError();
-    }
-
-    const id = rows[0]?.id;
-
-    if (!id) {
-      throw new PurchaseRequestNotCreatedError();
-    }
-
-    return id as PurchaseRequestID;
+    });
   }
 
   async search(id: PurchaseRequestID): Promise<PurchaseRequest | null> {
     return await this.searchOne(
-      `SELECT * FROM purchase_requests WHERE id = ?`,
+      `SELECT pr.*,
+         (SELECT JSON_ARRAYAGG(pri.iso_id)
+          FROM purchase_request_isos pri
+          WHERE pri.purchase_request_id = pr.id) AS iso_ids
+       FROM purchase_requests pr
+       WHERE pr.id = ?
+       LIMIT 1`,
       [id],
     );
   }
 
   async searchAll(): Promise<PurchaseRequest[]> {
     return await this.searchMany(
-      `SELECT * FROM purchase_requests ORDER BY request_number DESC`,
+      `SELECT pr.*,
+         (SELECT JSON_ARRAYAGG(pri.iso_id)
+          FROM purchase_request_isos pri
+          WHERE pri.purchase_request_id = pr.id) AS iso_ids
+       FROM purchase_requests pr
+       ORDER BY pr.request_number DESC`,
     );
+  }
+
+  private parseIds(value: unknown): number[] {
+    if (value === null || value === undefined) return [];
+    const ids = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(ids) ? ids.map(Number) : [];
   }
 
   protected toDomain(row: DatabasePurchaseRequestRow): PurchaseRequest {
@@ -87,11 +137,7 @@ export class PurchaseRequestRepository
       requestedBy: row.requested_by,
       status: row.status,
       purchaseType: row.purchase_type,
-      isos: Array.isArray(row.isos)
-        ? row.isos
-        : typeof row.isos === 'string'
-          ? JSON.parse(row.isos)
-          : [],
+      isoIds: this.parseIds(row.iso_ids),
       justification: row.justification,
       totalAmountEstimated: Number(row.total_amount_estimated),
       totalAmountFinal: Number(row.total_amount_final),

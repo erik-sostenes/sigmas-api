@@ -23,7 +23,7 @@ export class PurchaseRequestController {
       requestedBy: dto.requestedBy,
       purchaseType: dto.purchaseType,
       justification: dto.justification,
-      isos: dto.isos,
+      isoIds: dto.isoIds,
       totalAmountEstimated: dto.totalAmountEstimated,
     });
 

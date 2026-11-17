@@ -3,6 +3,7 @@ import {
   ArrayUnique,
   IsArray,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -27,11 +28,12 @@ export class CreatePurchaseRequestDto {
   @IsNotEmpty()
   justification: string;
 
-  @IsArray({ message: 'isos debe ser un arreglo de cadenas de texto' })
+  @IsArray({ message: 'isoIds debe ser un arreglo de números' })
   @ArrayNotEmpty({ message: 'Debes incluir al menos una norma ISO' })
   @ArrayUnique({ message: 'No se permiten normas ISO duplicadas' })
-  @IsString({ each: true, message: 'Cada código ISO debe ser una cadena de texto' })
-  isos: string[];
+  @IsInt({ each: true, message: 'Cada ID de ISO debe ser un número entero' })
+  @Min(1, { each: true, message: 'Cada ID de ISO debe ser mayor a 0' })
+  isoIds: number[];
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })

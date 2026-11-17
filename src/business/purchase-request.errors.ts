@@ -18,3 +18,10 @@ export class PurchaseRequestNotCreatedError extends Error {
     this.name = 'PurchaseRequestNotCreatedError';
   }
 }
+
+export class PurchaseRequestIsosNotFoundError extends Error {
+  constructor(isoIds: number[]) {
+    super(`Las siguientes normas ISO no existen: ${isoIds.join(', ')}.`);
+    this.name = 'PurchaseRequestIsosNotFoundError';
+  }
+}

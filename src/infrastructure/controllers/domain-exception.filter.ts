@@ -8,12 +8,14 @@ import type { Response } from 'express';
 import {
   InvalidPurchaseRequestError,
   PurchaseRequesterNotFoundError,
+  PurchaseRequestIsosNotFoundError,
   PurchaseRequestNotCreatedError,
 } from '../../business/purchase-request.errors';
 
 @Catch(
   InvalidPurchaseRequestError,
   PurchaseRequesterNotFoundError,
+  PurchaseRequestIsosNotFoundError,
   PurchaseRequestNotCreatedError,
 )
 export class PurchaseRequestExceptionFilter implements ExceptionFilter {
@@ -26,7 +28,10 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
       status = HttpStatus.BAD_REQUEST;
     }
 
-    if (error instanceof PurchaseRequesterNotFoundError) {
+    if (
+      error instanceof PurchaseRequesterNotFoundError ||
+      error instanceof PurchaseRequestIsosNotFoundError
+    ) {
       status = HttpStatus.UNPROCESSABLE_ENTITY;
     }
 
