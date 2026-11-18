@@ -6,39 +6,52 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
+  ComponentReferenceNotFoundError,
   InvalidPurchaseRequestError,
+  IsoNotFoundError,
+  ProductItemNotFoundError,
+  ProductReferenceNotFoundError,
+  PurchaseRequestDomainError,
   PurchaseRequesterNotFoundError,
   PurchaseRequestIsosNotFoundError,
   PurchaseRequestNotCreatedError,
+  RequestComponentNotFoundError,
 } from '../../business/purchase-request.errors';
 
-@Catch(
-  InvalidPurchaseRequestError,
-  PurchaseRequesterNotFoundError,
-  PurchaseRequestIsosNotFoundError,
-  PurchaseRequestNotCreatedError,
-)
+@Catch(PurchaseRequestDomainError)
 export class PurchaseRequestExceptionFilter implements ExceptionFilter {
   catch(error: Error, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
-
-    let status = HttpStatus.INTERNAL_SERVER_ERROR;
-
-    if (error instanceof InvalidPurchaseRequestError) {
-      status = HttpStatus.BAD_REQUEST;
-    }
-
-    if (
-      error instanceof PurchaseRequesterNotFoundError ||
-      error instanceof PurchaseRequestIsosNotFoundError
-    ) {
-      status = HttpStatus.UNPROCESSABLE_ENTITY;
-    }
+    const status = this.getHttpStatus(error);
 
     res.status(status).json({
       statusCode: status,
       error: error.name,
       message: error.message,
     });
+  }
+
+  private getHttpStatus(error: Error): number {
+    if (
+      error instanceof PurchaseRequesterNotFoundError ||
+      error instanceof PurchaseRequestIsosNotFoundError ||
+      error instanceof IsoNotFoundError ||
+      error instanceof ComponentReferenceNotFoundError ||
+      error instanceof ProductReferenceNotFoundError ||
+      error instanceof ProductItemNotFoundError ||
+      error instanceof RequestComponentNotFoundError
+    ) {
+      return HttpStatus.UNPROCESSABLE_ENTITY;
+    }
+
+    if (error instanceof PurchaseRequestNotCreatedError) {
+      return HttpStatus.INTERNAL_SERVER_ERROR;
+    }
+
+    if (error instanceof InvalidPurchaseRequestError) {
+      return HttpStatus.BAD_REQUEST;
+    }
+
+    return HttpStatus.BAD_REQUEST;
   }
 }
