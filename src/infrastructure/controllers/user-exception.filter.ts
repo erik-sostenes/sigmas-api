@@ -8,6 +8,7 @@ import {
 import type { Response } from 'express';
 import {
   ActivityAlreadyHasLeaderError,
+  ClerkUserError,
   InvalidUserActivitiesRoleError,
   LeaderUserRequiresActivitiesError,
   UserActivitiesNotFoundError,
@@ -15,6 +16,7 @@ import {
   UserDepartmentNotFoundError,
   UserEmailConflictError,
   UserNotCreatedError,
+  UserNotRegisteredError,
   UserRolesNotFoundError,
 } from '../../business/user.errors';
 
@@ -28,6 +30,8 @@ import {
   LeaderUserRequiresActivitiesError,
   ActivityAlreadyHasLeaderError,
   UserNotCreatedError,
+  UserNotRegisteredError,
+  ClerkUserError,
 )
 export class UserExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(UserExceptionFilter.name);
@@ -58,6 +62,10 @@ export class UserExceptionFilter implements ExceptionFilter {
       error instanceof LeaderUserRequiresActivitiesError
     ) {
       status = HttpStatus.UNPROCESSABLE_ENTITY;
+    } else if (error instanceof UserNotRegisteredError) {
+      status = HttpStatus.FORBIDDEN;
+    } else if (error instanceof ClerkUserError) {
+      status = HttpStatus.BAD_GATEWAY;
     }
 
     this.logger.warn(`[${error.name}] ${error.message}`);

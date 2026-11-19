@@ -1,12 +1,29 @@
-// business/purchase-request.model.ts
+import { ProductItem } from './product-item.model';
+import { RequestComponent } from './request-component.model';
+import {
+  InvalidFieldError,
+  InvalidAmountError,
+  InvalidStatusTransitionError,
+  DuplicatedRequestComponentError,
+  ProductItemNotFoundError,
+  RequestComponentNotFoundError,
+  MissingRequestComponentsError,
+  MissingProductItemsError,
+  ComponentsAmountMismatchError,
+  ProductsAmountMismatchError,
+} from './purchase-request.errors';
+
 export type PurchaseRequestID = string;
 
 export const REQUEST_STATUSES = [
   'SOLICITADO',
-  'AUTORIZA_LIDER',
+  'APRUEBA_LIDER',
   'RECHAZA_LIDER',
   'AUTORIZA_SUFICIENCIA',
   'RECHAZA_SUFICIENCIA',
+  'EN_REVISION_RECURSOS',
+  'RECHAZA_RECURSOS',
+  'PENDIENTE_APROBACION_SUFICIENCIA',
   'APRUEBA_SUFICIENCIA',
 ] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
@@ -19,68 +36,384 @@ export const PURCHASE_TYPES = [
 ] as const;
 export type PurchaseType = (typeof PURCHASE_TYPES)[number];
 
-type PurchaseRequestProps = {
-  id?: PurchaseRequestID; // lo genera la BD (UUID())
-  requestNumber?: number; // folio, AUTO_INCREMENT
-  requestedBy: string; // users.id
+export type PurchaseRequestProps = {
+  id?: PurchaseRequestID;
+  requestNumber?: number;
+  requestedBy: string;
   status?: RequestStatus;
-  purchaseType: PurchaseType;
-  isos: string[];
+  purchaseType?: PurchaseType;
+  isoIds: number[];
   justification: string;
   totalAmountEstimated?: number;
   totalAmountFinal?: number;
+  requestComponents?: RequestComponent[];
+  productItems?: ProductItem[];
   createdAt?: Date;
   updatedAt?: Date;
 };
+
+export type CreatePurchaseRequestProps = Omit<
+  PurchaseRequestProps,
+  | 'id'
+  | 'requestNumber'
+  | 'status'
+  | 'purchaseType'
+  | 'totalAmountEstimated'
+  | 'totalAmountFinal'
+  | 'createdAt'
+  | 'updatedAt'
+>;
+
+const ALLOWED_STATUS_TRANSITIONS: Record<
+  RequestStatus,
+  readonly RequestStatus[]
+> = {
+  SOLICITADO: ['APRUEBA_LIDER', 'RECHAZA_LIDER'],
+  APRUEBA_LIDER: ['AUTORIZA_SUFICIENCIA', 'RECHAZA_SUFICIENCIA'],
+  AUTORIZA_SUFICIENCIA: ['EN_REVISION_RECURSOS'],
+  EN_REVISION_RECURSOS: [
+    'PENDIENTE_APROBACION_SUFICIENCIA',
+    'RECHAZA_RECURSOS',
+  ],
+  PENDIENTE_APROBACION_SUFICIENCIA: [
+    'APRUEBA_SUFICIENCIA',
+    'RECHAZA_SUFICIENCIA',
+  ],
+  RECHAZA_LIDER: [],
+  RECHAZA_SUFICIENCIA: [],
+  RECHAZA_RECURSOS: [],
+  APRUEBA_SUFICIENCIA: [],
+};
+
+const assertNonEmpty = (value: string, field: string): void => {
+  if (!value || !value.trim()) {
+    throw new InvalidFieldError(field, 'es obligatorio');
+  }
+};
+
+const assertNonNegative = (value: number, field: string): void => {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new InvalidAmountError(field, 'debe ser un número mayor o igual a 0');
+  }
+};
+
+function assertValidStatus(value: string): asserts value is RequestStatus {
+  if (!(REQUEST_STATUSES as readonly string[]).includes(value)) {
+    throw new InvalidFieldError('status', `valor desconocido '${value}'`);
+  }
+}
+
+function assertValidPurchaseType(value: string): asserts value is PurchaseType {
+  if (!(PURCHASE_TYPES as readonly string[]).includes(value)) {
+    throw new InvalidFieldError('purchaseType', `valor desconocido '${value}'`);
+  }
+}
+
+const assertValidIsoIds = (isoIds: number[]): number[] => {
+  if (!Array.isArray(isoIds) || isoIds.length === 0) {
+    throw new InvalidFieldError(
+      'isoIds',
+      'debe incluir al menos una norma ISO',
+    );
+  }
+  const normalized = isoIds.map(Number);
+  if (normalized.some((id) => !Number.isInteger(id) || id <= 0)) {
+    throw new InvalidFieldError(
+      'isoIds',
+      'cada ID de ISO debe ser un entero positivo',
+    );
+  }
+  if (new Set(normalized).size !== normalized.length) {
+    throw new InvalidFieldError(
+      'isoIds',
+      'no se permiten normas ISO duplicadas',
+    );
+  }
+  return normalized;
+};
+
+const roundMoney = (value: number): number =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
 
 export class PurchaseRequest {
   readonly id?: PurchaseRequestID;
   readonly requestNumber?: number;
   readonly requestedBy: string;
-  readonly status: RequestStatus;
-  readonly purchaseType: PurchaseType;
-  readonly isos: string[];
+  readonly isoIds: number[];
   readonly justification: string;
-  readonly totalAmountEstimated: number;
-  readonly totalAmountFinal: number;
   readonly createdAt?: Date;
   readonly updatedAt?: Date;
 
-  constructor(props: PurchaseRequestProps) {
+  private _purchaseType: PurchaseType | null;
+  private _status: RequestStatus;
+  private _totalAmountEstimated: number;
+  private _totalAmountFinal: number;
+
+  private readonly _requestComponents: RequestComponent[];
+  private readonly _productItems: ProductItem[];
+
+  private constructor(props: PurchaseRequestProps) {
     this.id = props.id;
     this.requestNumber = props.requestNumber;
     this.requestedBy = props.requestedBy;
-    this.status = props.status ?? 'SOLICITADO';
-    this.purchaseType = props.purchaseType;
-    this.isos = (props.isos ?? []).map((iso) => iso.trim()).filter((iso) => iso.length > 0);
+    this.isoIds = [...(props.isoIds ?? [])];
     this.justification = props.justification;
-    this.totalAmountEstimated = props.totalAmountEstimated ?? 0;
-    this.totalAmountFinal = props.totalAmountFinal ?? 0;
+    this._status = props.status ?? 'SOLICITADO';
+    this._purchaseType = props.purchaseType ?? null;
+    this._totalAmountEstimated = props.totalAmountEstimated ?? 0;
+    this._totalAmountFinal = props.totalAmountFinal ?? 0;
+    this._requestComponents = [...(props.requestComponents ?? [])];
+    this._productItems = [...(props.productItems ?? [])];
     this.createdAt = props.createdAt;
     this.updatedAt = props.updatedAt;
   }
 
-  validate(): void {
-    if (this.requestedBy.trim().length === 0) {
-      throw new InvalidPurchaseRequestError('El solicitante es obligatorio.');
+  static create(props: CreatePurchaseRequestProps): PurchaseRequest {
+    assertNonEmpty(props.requestedBy, 'requestedBy');
+    assertNonEmpty(props.justification, 'justification');
+    const validIsoIds = assertValidIsoIds(props.isoIds);
+
+    // 1. Validaciones de existencia (Al menos 1 de cada uno)
+    if (!props.requestComponents || props.requestComponents.length === 0) {
+      throw new MissingRequestComponentsError();
     }
-    if (this.justification.trim().length === 0) {
-      throw new InvalidPurchaseRequestError('La justificación es obligatoria.');
+    if (!props.productItems || props.productItems.length === 0) {
+      throw new MissingProductItemsError();
     }
-    if (!PURCHASE_TYPES.includes(this.purchaseType)) {
-      throw new InvalidPurchaseRequestError('El tipo de compra no es válido.');
+
+    const request = new PurchaseRequest({
+      requestedBy: props.requestedBy,
+      justification: props.justification,
+      isoIds: validIsoIds,
+      status: 'SOLICITADO',
+      purchaseType: undefined,
+      totalAmountEstimated: 0,
+      totalAmountFinal: 0,
+    });
+
+    for (const component of props.requestComponents) {
+      request.addRequestComponent(component);
     }
-    if (!Array.isArray(this.isos) || this.isos.length === 0) {
-      throw new InvalidPurchaseRequestError(
-        'Debes especificar al menos una norma ISO.',
+    for (const item of props.productItems) {
+      request.addProductItem(item); // Esto recalcula el _totalAmountEstimated
+    }
+
+    // 2. Validación de Consistencia (El triángulo de montos)
+    request.validateEstimatedAmounts();
+
+    return request;
+  }
+
+  static rehydrate(props: PurchaseRequestProps): PurchaseRequest {
+    assertNonEmpty(props.requestedBy, 'requestedBy');
+    assertNonEmpty(props.justification, 'justification');
+    if (props.purchaseType) assertValidPurchaseType(props.purchaseType);
+    assertValidStatus(props.status ?? 'SOLICITADO');
+    assertNonNegative(props.totalAmountEstimated ?? 0, 'totalAmountEstimated');
+    assertNonNegative(props.totalAmountFinal ?? 0, 'totalAmountFinal');
+
+    return new PurchaseRequest({
+      ...props,
+      status: props.status ?? 'SOLICITADO',
+    });
+  }
+
+  get status(): RequestStatus {
+    return this._status;
+  }
+  get totalAmountEstimated(): number {
+    return this._totalAmountEstimated;
+  }
+  get totalAmountFinal(): number {
+    return this._totalAmountFinal;
+  }
+  get requestComponents(): readonly RequestComponent[] {
+    return this._requestComponents;
+  }
+  get productItems(): readonly ProductItem[] {
+    return this._productItems;
+  }
+  get purchaseType(): PurchaseType | null {
+    return this._purchaseType;
+  }
+
+  addRequestComponent(component: RequestComponent): void {
+    if (this.id) {
+      throw new InvalidFieldError(
+        'requestComponents',
+        'no se pueden agregar componentes a una solicitud ya guardada',
       );
     }
-    if (this.totalAmountEstimated < 0 || this.totalAmountFinal < 0) {
-      throw new InvalidPurchaseRequestError(
-        'Los montos no pueden ser negativos.',
+
+    const duplicated = this._requestComponents.some(
+      (current) =>
+        current.componentId === component.componentId &&
+        current.activityId === component.activityId,
+    );
+
+    if (duplicated) {
+      throw new DuplicatedRequestComponentError(
+        component.componentId,
+        component.activityId,
+      );
+    }
+
+    this._requestComponents.push(component);
+  }
+
+  addProductItem(item: ProductItem): void {
+    if (this.id)
+      throw new InvalidFieldError(
+        'productItems',
+        'no se pueden agregar productos a una solicitud ya guardada',
+      );
+
+    if (
+      this.id &&
+      item.purchaseRequestId &&
+      item.purchaseRequestId !== this.id
+    ) {
+      throw new InvalidFieldError(
+        'purchaseRequestId',
+        'el producto pertenece a otra solicitud',
+      );
+    }
+
+    this._productItems.push(item);
+    this.recalculateTotals();
+  }
+
+  updateProductItemFinalAmount(itemId: string, newAmount: number): void {
+    const item = this._productItems.find((p) => p.id === itemId);
+    if (!item) {
+      throw new ProductItemNotFoundError(itemId);
+    }
+    item.updateFinalAmount(newAmount);
+    this.recalculateTotals();
+  }
+
+  updateRequestComponentFinalAmount(
+    componentId: number,
+    activityId: number,
+    newAmount: number,
+  ): void {
+    const component = this._requestComponents.find(
+      (c) => c.componentId === componentId && c.activityId === activityId,
+    );
+
+    if (!component) {
+      throw new RequestComponentNotFoundError(componentId, activityId);
+    }
+
+    component.updateFinalAmount(newAmount);
+  }
+
+  // ==========================================
+  // MÉTODOS DE FLUJO DE NEGOCIO
+  // FUTURO: Se conectarán cuando se implementen los endpoints PATCH de aprobación/rechazo.
+  // ==========================================
+  approveByLeader(): void {
+    this.changeStatus('APRUEBA_LIDER');
+  }
+  rejectByLeader(): void {
+    this.changeStatus('RECHAZA_LIDER');
+  }
+  authorizeBySufficiency(): void {
+    this.changeStatus('AUTORIZA_SUFICIENCIA');
+  }
+  rejectBySufficiency(): void {
+    this.changeStatus('RECHAZA_SUFICIENCIA');
+  }
+  sendToResources(): void {
+    this.changeStatus('EN_REVISION_RECURSOS');
+  }
+  rejectByResources(): void {
+    this.changeStatus('RECHAZA_RECURSOS');
+  }
+  finishMarketStudy(): void {
+    this.changeStatus('PENDIENTE_APROBACION_SUFICIENCIA');
+  }
+  approveBySufficiency(): void {
+    this.changeStatus('APRUEBA_SUFICIENCIA');
+  }
+
+  // FUTURO (Aprobación multi-líder)
+  // Calcula el estatus global de la solicitud a partir del leaderStatus de sus componentes:
+  // - Al menos uno RECHAZADO -> RECHAZA_LIDER
+  // - Todos APROBADO -> APRUEBA_LIDER
+  // - Al menos uno PENDIENTE y ninguno RECHAZADO -> se mantiene en SOLICITADO
+  syncStatusFromComponentApprovals(): void {
+    if (this._requestComponents.length === 0) return;
+
+    const hasRejected = this._requestComponents.some(
+      (c) => c.leaderStatus === 'RECHAZADO',
+    );
+    if (hasRejected) {
+      if (this._status !== 'RECHAZA_LIDER') {
+        this.changeStatus('RECHAZA_LIDER');
+      }
+      return;
+    }
+
+    const allApproved = this._requestComponents.every(
+      (c) => c.leaderStatus === 'APROBADO',
+    );
+    if (allApproved && this._status !== 'APRUEBA_LIDER') {
+      this.changeStatus('APRUEBA_LIDER');
+    }
+  }
+
+  // ==========================================
+  // MÉTODOS PRIVADOS
+  // ==========================================
+
+  private changeStatus(nextStatus: RequestStatus): void {
+    const allowed = ALLOWED_STATUS_TRANSITIONS[this._status];
+    if (!allowed.includes(nextStatus)) {
+      throw new InvalidStatusTransitionError(this._status, nextStatus);
+    }
+    this._status = nextStatus;
+  }
+
+  private recalculateTotals(): void {
+    // Ahora los productos ya traen su importe final, no se multiplica por quantity
+    this._totalAmountEstimated = roundMoney(
+      this._productItems.reduce((sum, item) => sum + item.estimatedAmount, 0),
+    );
+
+    this._totalAmountFinal = roundMoney(
+      this._productItems.reduce((sum, item) => sum + item.finalAmount, 0),
+    );
+  }
+
+  private validateEstimatedAmounts(): void {
+    const sumProducts = roundMoney(
+      this._productItems.reduce((sum, item) => sum + item.estimatedAmount, 0),
+    );
+
+    const sumComponents = roundMoney(
+      this._requestComponents.reduce(
+        (sum, comp) => sum + comp.estimatedAmount,
+        0,
+      ),
+    );
+
+    const tolerance = 0.01;
+
+    // Productos vs Solicitud Total
+    if (Math.abs(sumProducts - this._totalAmountEstimated) > tolerance) {
+      throw new ProductsAmountMismatchError(
+        sumProducts,
+        this._totalAmountEstimated,
+      );
+    }
+
+    // Componentes vs Solicitud Total
+    if (Math.abs(sumComponents - this._totalAmountEstimated) > tolerance) {
+      throw new ComponentsAmountMismatchError(
+        sumComponents,
+        this._totalAmountEstimated,
       );
     }
   }
 }
-
-import { InvalidPurchaseRequestError } from './purchase-request.errors';

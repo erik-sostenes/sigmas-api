@@ -123,14 +123,20 @@ CREATE TABLE if not exists purchase_requests (
       'APRUEBA_SUFICIENCIA'
     ) NOT NULL DEFAULT 'SOLICITADO',
     purchase_type ENUM('COMPRA_MOSTRADOR', 'COMPRA_ADJ_DIRECTA', 'COMPRA_LICITACION', 'COMPRA_INVITACION') NULL,
-    iso_id INT UNSIGNED NOT NULL,
     justification TEXT NOT NULL,
     total_amount_estimated DECIMAL(12,2) NOT NULL DEFAULT 0, 
     total_amount_final DECIMAL(12,2) NOT NULL DEFAULT 0,     
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (requested_by) REFERENCES users(id),
-    FOREIGN KEY (iso_id) REFERENCES isos(id)
+    FOREIGN KEY (requested_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS purchase_request_isos (
+    purchase_request_id CHAR(36) NOT NULL,
+    iso_id INT UNSIGNED NOT NULL,
+    PRIMARY KEY (purchase_request_id, iso_id),
+    FOREIGN KEY (purchase_request_id) REFERENCES purchase_requests(id) ON DELETE CASCADE,
+    FOREIGN KEY (iso_id) REFERENCES isos(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS request_components (
@@ -171,6 +177,7 @@ CREATE TABLE IF NOT EXISTS product_items (
 
 DROP TABLE IF EXISTS product_items;
 DROP TABLE IF EXISTS request_components;
+DROP TABLE IF EXISTS purchase_request_isos;
 DROP TABLE IF EXISTS purchase_requests;
 DROP TABLE IF EXISTS invitations;
 DROP TABLE IF EXISTS user_activities;

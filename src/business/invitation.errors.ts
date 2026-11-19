@@ -118,6 +118,15 @@ export class InvitationNotFoundError extends Error {
   }
 }
 
+export class InvitationAlreadyAcceptedError extends Error {
+  constructor() {
+    super(
+      'La invitación ya fue aceptada en Clerk y no se puede cancelar. Verifica que el usuario se haya registrado correctamente.',
+    );
+    this.name = 'InvitationAlreadyAcceptedError';
+  }
+}
+
 export class ClerkInvitationError extends Error {
   constructor(message: string) {
     super(`Error al interactuar con Clerk: ${message}`);

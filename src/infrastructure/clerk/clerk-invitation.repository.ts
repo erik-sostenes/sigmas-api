@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { createClerkClient } from '@clerk/backend';
 import { Invitation } from '../../business/invitation.model';
-import { ClerkInvitationError } from '../../business/invitation.errors';
+import {
+  ClerkInvitationError,
+  InvitationAlreadyAcceptedError,
+} from '../../business/invitation.errors';
 import { ClerkInvitationRepositoryI } from '../../business/invitation.ports';
 
 const DEFAULT_REDIRECT_URL = 'http://localhost:5173/user-register';
@@ -41,6 +44,14 @@ export class ClerkInvitationRepository implements ClerkInvitationRepositoryI {
   }
 
   async revokeClerkInvitation(clerkInvitationId: string): Promise<void> {
-    await this.clerkClient.invitations.revokeInvitation(clerkInvitationId);
+    try {
+      await this.clerkClient.invitations.revokeInvitation(clerkInvitationId);
+    } catch (error: any) {
+      if (error.errors?.[0]?.code === 'invitation_already_accepted') {
+        throw new InvitationAlreadyAcceptedError();
+      }
+      const clerkMessage = error.errors?.[0]?.message || error.message;
+      throw new ClerkInvitationError(clerkMessage);
+    }
   }
 }

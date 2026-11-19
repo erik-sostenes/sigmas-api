@@ -146,4 +146,8 @@ export class InvitationLogic implements InvitationLogicI {
     }
     await this.invitationRepository.delete(invitationId);
   }
+
+  async getInvitations(): Promise<Invitation[]> {
+    return await this.invitationRepository.findAll();
+  }
 }
