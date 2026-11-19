@@ -3,16 +3,27 @@ import {
   ArrayNotEmpty,
   ArrayUnique,
   IsArray,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import {
+  REQUEST_STATUSES,
+  type RequestStatus,
+} from '../../business/purchase-request.model';
+import {
+  PURCHASE_REQUEST_SCOPES,
+  type PurchaseRequestScope,
+} from '../../business/purchase-request.ports';
 
 export class CreateRequestComponentDto {
   @IsInt({
@@ -105,4 +116,31 @@ export class CreatePurchaseRequestDto {
   @ValidateNested({ each: true })
   @Type(() => CreateProductItemDto)
   productItems: CreateProductItemDto[];
+}
+
+export class ListPurchaseRequestsQueryDto {
+  @IsOptional()
+  @IsIn(PURCHASE_REQUEST_SCOPES, {
+    message: 'scope debe ser uno de: requester, leader, all.',
+  })
+  scope?: PurchaseRequestScope;
+
+  @IsOptional()
+  @IsIn(REQUEST_STATUSES, {
+    message: 'status no es un estatus válido.',
+  })
+  status?: RequestStatus;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'page debe ser un número entero.' })
+  @Min(1, { message: 'page debe ser al menos 1.' })
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'limit debe ser un número entero.' })
+  @Min(1, { message: 'limit debe ser al menos 1.' })
+  @Max(100, { message: 'limit no puede ser mayor a 100.' })
+  limit?: number = 10;
 }

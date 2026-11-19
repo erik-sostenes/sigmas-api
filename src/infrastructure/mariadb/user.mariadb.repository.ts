@@ -196,7 +196,7 @@ export class UserMariaDBRepository
       for (const act of lockedActivities) {
         await this.executeOn(
           tx,
-          `INSERT INTO user_activities (user_id, activity_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id=VALUES(user_id)`,
+          `INSERT INTO user_activities (user_id, activity_id) VALUES (?, ?)`,
           [userId, act.id],
         );
       }

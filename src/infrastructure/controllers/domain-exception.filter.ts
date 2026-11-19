@@ -11,6 +11,7 @@ import {
   IsoNotFoundError,
   ProductItemNotFoundError,
   ProductReferenceNotFoundError,
+  PurchaseRequestAccessDeniedError,
   PurchaseRequestDomainError,
   PurchaseRequesterNotFoundError,
   PurchaseRequestIsosNotFoundError,
@@ -32,6 +33,10 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
   }
 
   private getHttpStatus(error: Error): number {
+    if (error instanceof PurchaseRequestAccessDeniedError) {
+      return HttpStatus.FORBIDDEN;
+    }
+
     if (
       error instanceof PurchaseRequesterNotFoundError ||
       error instanceof PurchaseRequestIsosNotFoundError ||

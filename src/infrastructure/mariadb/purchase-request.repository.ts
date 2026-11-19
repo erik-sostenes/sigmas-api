@@ -5,7 +5,15 @@ import {
   type PurchaseType,
   type RequestStatus,
 } from '../../business/purchase-request.model';
-import type { PurchaseRequestRepositoryI } from '../../business/purchase-request.ports';
+import type {
+  ListPurchaseRequestsRepoQuery,
+  PaginatedPurchaseRequests,
+  PurchaseRequestComponentView,
+  PurchaseRequestListItem,
+  PurchaseRequestProductItemView,
+  PurchaseRequestRepositoryI,
+  PurchaseRequestViewer,
+} from '../../business/purchase-request.ports';
 import {
   ComponentReferenceNotFoundError,
   ProductReferenceNotFoundError,
@@ -29,6 +37,12 @@ type DatabasePurchaseRequestRow = {
   total_amount_final: string | number;
   created_at: Date;
   updated_at: Date;
+};
+
+type DatabasePurchaseRequestListRow = DatabasePurchaseRequestRow & {
+  is_requester: number | boolean;
+  components: unknown;
+  product_items: unknown;
 };
 
 @Injectable()
@@ -60,10 +74,163 @@ export class PurchaseRequestRepository
     });
   }
 
+  async findViewerByClerkId(
+    clerkId: string,
+  ): Promise<PurchaseRequestViewer | null> {
+    const rows = await this.execute(
+      `SELECT u.id AS user_id,
+         (SELECT JSON_ARRAYAGG(r.code)
+          FROM user_roles ur
+          INNER JOIN roles r ON r.id = ur.role_id
+          WHERE ur.user_id = u.id) AS role_codes
+       FROM users u
+       WHERE u.clerk_id = ? AND u.is_active = TRUE
+       LIMIT 1`,
+      [clerkId],
+    );
+
+    const row = rows[0];
+    if (!row) return null;
+
+    return {
+      userId: String(row.user_id),
+      roleCodes: this.parseStringArray(row.role_codes),
+    };
+  }
+
+  async listPaginated(
+    query: ListPurchaseRequestsRepoQuery,
+  ): Promise<PaginatedPurchaseRequests> {
+    const offset = (query.page - 1) * query.limit;
+
+    let whereScope: string;
+    let componentsFilter: string;
+
+    switch (query.scope) {
+      case 'all':
+        whereScope = '1 = 1';
+        componentsFilter = '';
+        break;
+      case 'requester':
+        whereScope = 'pr.requested_by = me.uid';
+        componentsFilter = '';
+        break;
+      case 'leader':
+        whereScope = `EXISTS (
+          SELECT 1
+          FROM request_components rc
+          INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
+          WHERE rc.purchase_request_id = pr.id
+            AND ua.user_id = me.uid
+        )`;
+        componentsFilter = `AND EXISTS (
+          SELECT 1
+          FROM user_activities ua
+          WHERE ua.activity_id = rc.activity_id
+            AND ua.user_id = me.uid
+        )`;
+        break;
+      default:
+        whereScope = `(pr.requested_by = me.uid OR EXISTS (
+          SELECT 1
+          FROM request_components rc
+          INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
+          WHERE rc.purchase_request_id = pr.id
+            AND ua.user_id = me.uid
+        ))`;
+        componentsFilter = `AND (pr.requested_by = me.uid OR EXISTS (
+          SELECT 1
+          FROM user_activities ua
+          WHERE ua.activity_id = rc.activity_id
+            AND ua.user_id = me.uid
+        ))`;
+        break;
+    }
+
+    const statusClause = query.status ? 'AND pr.status = ?' : '';
+    const baseParams: unknown[] = query.status
+      ? [query.userId, query.status]
+      : [query.userId];
+
+    const countRows = await this.execute(
+      `SELECT COUNT(*) AS total
+       FROM purchase_requests pr
+       CROSS JOIN (SELECT ? AS uid) me
+       WHERE ${whereScope} ${statusClause}`,
+      baseParams,
+    );
+
+    const total = Number(countRows[0]?.total ?? 0);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / query.limit);
+
+    const rows = (await this.execute(
+      `SELECT pr.id, pr.request_number, pr.requested_by, pr.status, pr.purchase_type,
+              pr.justification, pr.total_amount_estimated, pr.total_amount_final,
+              pr.created_at, pr.updated_at,
+         (pr.requested_by = me.uid) AS is_requester,
+         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
+          FROM purchase_request_isos pri
+          WHERE pri.purchase_request_id = pr.id) AS iso_ids,
+         (SELECT JSON_ARRAYAGG(JSON_OBJECT(
+                   'id', rc.id,
+                   'componentId', rc.component_id,
+                   'activityId', rc.activity_id,
+                   'fundingSourceId', rc.funding_source_id,
+                   'estimatedAmount', rc.estimated_amount,
+                   'finalAmount', rc.final_amount))
+          FROM request_components rc
+          WHERE rc.purchase_request_id = pr.id
+            ${componentsFilter}) AS components,
+         (SELECT JSON_ARRAYAGG(JSON_OBJECT(
+                   'id', pi.id,
+                   'budgetItemId', pi.budget_item_id,
+                   'measurementUnitId', pi.measurement_unit_id,
+                   'quantity', pi.quantity,
+                   'description', pi.description,
+                   'estimatedAmount', pi.estimated_amount,
+                   'finalAmount', pi.final_amount))
+          FROM product_items pi
+          WHERE pi.purchase_request_id = pr.id) AS product_items
+       FROM purchase_requests pr
+       CROSS JOIN (SELECT ? AS uid) me
+       WHERE ${whereScope} ${statusClause}
+       ORDER BY pr.request_number DESC
+       LIMIT ? OFFSET ?`,
+      [...baseParams, query.limit, offset],
+    )) as DatabasePurchaseRequestListRow[];
+
+    const data: PurchaseRequestListItem[] = rows.map((row) => ({
+      id: row.id,
+      requestNumber: Number(row.request_number),
+      requestedBy: row.requested_by,
+      status: row.status,
+      purchaseType: row.purchase_type ?? null,
+      justification: row.justification,
+      totalAmountEstimated: Number(row.total_amount_estimated),
+      totalAmountFinal: Number(row.total_amount_final),
+      isoIds: this.parseIds(row.iso_ids),
+      components: this.parseComponents(row.components),
+      productItems: this.parseProductItems(row.product_items),
+      isRequester: Boolean(row.is_requester),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
+    return {
+      data,
+      meta: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages,
+      },
+    };
+  }
+
   async search(id: PurchaseRequestID): Promise<PurchaseRequest | null> {
     return await this.searchOne(
       `SELECT pr.*,
-         (SELECT JSON_ARRAYAGG(pri.iso_id)
+         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
           FROM purchase_request_isos pri
           WHERE pri.purchase_request_id = pr.id) AS iso_ids
        FROM purchase_requests pr
@@ -76,7 +243,7 @@ export class PurchaseRequestRepository
   async searchAll(): Promise<PurchaseRequest[]> {
     return await this.searchMany(
       `SELECT pr.*,
-         (SELECT JSON_ARRAYAGG(pri.iso_id)
+         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
           FROM purchase_request_isos pri
           WHERE pri.purchase_request_id = pr.id) AS iso_ids
        FROM purchase_requests pr
@@ -259,13 +426,50 @@ export class PurchaseRequestRepository
   }
 
   // ==========================================
-  // Hidratación
+  // Hidratación / Parsing JSON
   // ==========================================
 
-  private parseIds(value: unknown): number[] {
+  private parseJsonArray(value: unknown): unknown[] {
     if (value === null || value === undefined) return [];
-    const ids = typeof value === 'string' ? JSON.parse(value) : value;
-    return Array.isArray(ids) ? ids.map(Number) : [];
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed : [];
+  }
+
+  private parseIds(value: unknown): number[] {
+    return this.parseJsonArray(value).map(Number);
+  }
+
+  private parseStringArray(value: unknown): string[] {
+    return this.parseJsonArray(value).map(String);
+  }
+
+  private parseComponents(value: unknown): PurchaseRequestComponentView[] {
+    return this.parseJsonArray(value).map((item) => {
+      const c = item as Record<string, unknown>;
+      return {
+        id: String(c.id),
+        componentId: Number(c.componentId),
+        activityId: Number(c.activityId),
+        fundingSourceId: Number(c.fundingSourceId),
+        estimatedAmount: Number(c.estimatedAmount),
+        finalAmount: Number(c.finalAmount),
+      };
+    });
+  }
+
+  private parseProductItems(value: unknown): PurchaseRequestProductItemView[] {
+    return this.parseJsonArray(value).map((item) => {
+      const p = item as Record<string, unknown>;
+      return {
+        id: String(p.id),
+        budgetItemId: Number(p.budgetItemId),
+        measurementUnitId: Number(p.measurementUnitId),
+        quantity: Number(p.quantity),
+        description: String(p.description),
+        estimatedAmount: Number(p.estimatedAmount),
+        finalAmount: Number(p.finalAmount),
+      };
+    });
   }
 
   protected toDomain(row: DatabasePurchaseRequestRow): PurchaseRequest {
