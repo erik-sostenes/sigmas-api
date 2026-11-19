@@ -213,6 +213,9 @@ export class PurchaseRequestRepository
     whereScope: string;
     componentsFilter: string;
   } {
+    // ACTIVO (Primera entrega): Filtros por vista activa y visibilidad por rol.
+    // FUTURO (Fase 2 - Aprobación multi-líder): Agregar aquí filtro opcional por rc.leader_status (ej. PENDIENTE).
+    // FUTURO (Escalabilidad): Si purchase_requests crece a miles de filas, reescribir el scope combinado (default) con UNION en lugar de OR EXISTS.
     switch (scope) {
       case 'all':
         return {

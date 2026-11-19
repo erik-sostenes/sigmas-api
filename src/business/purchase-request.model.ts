@@ -310,6 +310,7 @@ export class PurchaseRequest {
 
   // ==========================================
   // MÉTODOS DE FLUJO DE NEGOCIO
+  // FUTURO: Se conectarán cuando se implementen los endpoints PATCH de aprobación/rechazo.
   // ==========================================
   approveByLeader(): void {
     this.changeStatus('APRUEBA_LIDER');
@@ -334,6 +335,32 @@ export class PurchaseRequest {
   }
   approveBySufficiency(): void {
     this.changeStatus('APRUEBA_SUFICIENCIA');
+  }
+
+  // FUTURO (Aprobación multi-líder)
+  // Calcula el estatus global de la solicitud a partir del leaderStatus de sus componentes:
+  // - Al menos uno RECHAZADO -> RECHAZA_LIDER
+  // - Todos APROBADO -> APRUEBA_LIDER
+  // - Al menos uno PENDIENTE y ninguno RECHAZADO -> se mantiene en SOLICITADO
+  syncStatusFromComponentApprovals(): void {
+    if (this._requestComponents.length === 0) return;
+
+    const hasRejected = this._requestComponents.some(
+      (c) => c.leaderStatus === 'RECHAZADO',
+    );
+    if (hasRejected) {
+      if (this._status !== 'RECHAZA_LIDER') {
+        this.changeStatus('RECHAZA_LIDER');
+      }
+      return;
+    }
+
+    const allApproved = this._requestComponents.every(
+      (c) => c.leaderStatus === 'APROBADO',
+    );
+    if (allApproved && this._status !== 'APRUEBA_LIDER') {
+      this.changeStatus('APRUEBA_LIDER');
+    }
   }
 
   // ==========================================
