@@ -118,6 +118,14 @@ export class CreatePurchaseRequestDto {
   productItems: CreateProductItemDto[];
 }
 
+export class GetPurchaseRequestByIdQueryDto {
+  @IsOptional()
+  @IsIn(PURCHASE_REQUEST_SCOPES, {
+    message: 'scope debe ser uno de: requester, leader, all.',
+  })
+  scope?: PurchaseRequestScope;
+}
+
 export class ListPurchaseRequestsQueryDto {
   @IsOptional()
   @IsIn(PURCHASE_REQUEST_SCOPES, {
@@ -130,6 +138,11 @@ export class ListPurchaseRequestsQueryDto {
     message: 'status no es un estatus válido.',
   })
   status?: RequestStatus;
+
+  @IsOptional()
+  @IsString({ message: 'search debe ser texto.' })
+  @MaxLength(20, { message: 'search no puede exceder 20 caracteres.' })
+  search?: string;
 
   @IsOptional()
   @Type(() => Number)

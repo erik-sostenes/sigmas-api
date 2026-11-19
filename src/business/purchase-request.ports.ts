@@ -8,6 +8,15 @@ import {
 export const PURCHASE_REQUEST_SCOPES = ['requester', 'leader', 'all'] as const;
 export type PurchaseRequestScope = (typeof PURCHASE_REQUEST_SCOPES)[number];
 
+export interface PurchaseRequestRequesterView {
+  id: string;
+  title: string | null;
+  firstName: string;
+  lastName: string;
+  email: string;
+  departmentName: string;
+}
+
 export interface PurchaseRequestComponentView {
   id: string;
   componentId: number;
@@ -31,6 +40,7 @@ export interface PurchaseRequestListItem {
   id: PurchaseRequestID;
   requestNumber: number;
   requestedBy: string;
+  requester: PurchaseRequestRequesterView;
   status: RequestStatus;
   purchaseType: PurchaseType | null;
   justification: string;
@@ -59,8 +69,16 @@ export interface ListPurchaseRequestsInput {
   clerkMetadataRole?: string;
   scope?: PurchaseRequestScope;
   status?: RequestStatus;
+  search?: string;
   page: number;
   limit: number;
+}
+
+export interface GetPurchaseRequestByIdInput {
+  id: PurchaseRequestID;
+  clerkId: string;
+  clerkMetadataRole?: string;
+  scope?: PurchaseRequestScope;
 }
 
 export interface PurchaseRequestViewer {
@@ -72,8 +90,15 @@ export interface ListPurchaseRequestsRepoQuery {
   userId: string;
   scope?: PurchaseRequestScope;
   status?: RequestStatus;
+  search?: string;
   page: number;
   limit: number;
+}
+
+export interface FindPurchaseRequestDetailRepoQuery {
+  id: PurchaseRequestID;
+  userId: string;
+  scope?: PurchaseRequestScope;
 }
 
 // left ports
@@ -82,6 +107,9 @@ export abstract class PurchaseRequestLogicI {
   abstract list(
     input: ListPurchaseRequestsInput,
   ): Promise<PaginatedPurchaseRequests>;
+  abstract getById(
+    input: GetPurchaseRequestByIdInput,
+  ): Promise<PurchaseRequestListItem>;
 }
 
 // right ports
@@ -93,4 +121,8 @@ export abstract class PurchaseRequestRepositoryI {
   abstract listPaginated(
     query: ListPurchaseRequestsRepoQuery,
   ): Promise<PaginatedPurchaseRequests>;
+  abstract existsById(id: PurchaseRequestID): Promise<boolean>;
+  abstract findDetailById(
+    query: FindPurchaseRequestDetailRepoQuery,
+  ): Promise<PurchaseRequestListItem | null>;
 }

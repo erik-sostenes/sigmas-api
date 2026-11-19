@@ -4,6 +4,8 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Req,
@@ -12,6 +14,7 @@ import {
 } from '@nestjs/common';
 import {
   type PaginatedPurchaseRequests,
+  type PurchaseRequestListItem,
   PurchaseRequestLogicI,
 } from '../../business/purchase-request.ports';
 import { PurchaseRequest } from '../../business/purchase-request.model';
@@ -19,6 +22,7 @@ import { RequestComponent } from '../../business/request-component.model';
 import { ProductItem } from '../../business/product-item.model';
 import {
   CreatePurchaseRequestDto,
+  GetPurchaseRequestByIdQueryDto,
   ListPurchaseRequestsQueryDto,
 } from './purchase-request.dto';
 import { PurchaseRequestExceptionFilter } from './domain-exception.filter';
@@ -50,14 +54,34 @@ export class PurchaseRequestController {
   ): Promise<PaginatedPurchaseRequests> {
     const metadata = req.auth?.sessionClaims?.metadata;
     const clerkMetadataRole = metadata?.rol ?? metadata?.role;
+    const trimmedSearch = query.search?.trim();
 
     return await this.purchaseRequestLogic.list({
       clerkId: req.auth.userId,
       clerkMetadataRole,
       scope: query.scope,
       status: query.status,
+      search: trimmedSearch && trimmedSearch.length > 0 ? trimmedSearch : undefined,
       page: query.page ?? 1,
       limit: query.limit ?? 10,
+    });
+  }
+
+  @Get(':id')
+  @HttpCode(HttpStatus.OK)
+  async getById(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() query: GetPurchaseRequestByIdQueryDto,
+  ): Promise<PurchaseRequestListItem> {
+    const metadata = req.auth?.sessionClaims?.metadata;
+    const clerkMetadataRole = metadata?.rol ?? metadata?.role;
+
+    return await this.purchaseRequestLogic.getById({
+      id,
+      clerkId: req.auth.userId,
+      clerkMetadataRole,
+      scope: query.scope,
     });
   }
 

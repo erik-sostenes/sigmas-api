@@ -6,12 +6,14 @@ import {
   type RequestStatus,
 } from '../../business/purchase-request.model';
 import type {
+  FindPurchaseRequestDetailRepoQuery,
   ListPurchaseRequestsRepoQuery,
   PaginatedPurchaseRequests,
   PurchaseRequestComponentView,
   PurchaseRequestListItem,
   PurchaseRequestProductItemView,
   PurchaseRequestRepositoryI,
+  PurchaseRequestScope,
   PurchaseRequestViewer,
 } from '../../business/purchase-request.ports';
 import {
@@ -40,6 +42,11 @@ type DatabasePurchaseRequestRow = {
 };
 
 type DatabasePurchaseRequestListRow = DatabasePurchaseRequestRow & {
+  requester_title: string | null;
+  requester_first_name: string;
+  requester_last_name: string;
+  requester_email: string;
+  department_name: string;
   is_requester: number | boolean;
   components: unknown;
   product_items: unknown;
@@ -98,65 +105,57 @@ export class PurchaseRequestRepository
     };
   }
 
+  async existsById(id: PurchaseRequestID): Promise<boolean> {
+    const rows = await this.execute(
+      `SELECT 1 FROM purchase_requests WHERE id = ? LIMIT 1`,
+      [id],
+    );
+    return rows.length > 0;
+  }
+
+  async findDetailById(
+    query: FindPurchaseRequestDetailRepoQuery,
+  ): Promise<PurchaseRequestListItem | null> {
+    const { whereScope, componentsFilter } = this.buildScopeFilter(query.scope);
+
+    const rows = (await this.execute(
+      `${this.buildDetailSelectSql(componentsFilter)}
+       WHERE pr.id = ?
+         AND ${whereScope}
+       LIMIT 1`,
+      [query.userId, query.id],
+    )) as DatabasePurchaseRequestListRow[];
+
+    const row = rows[0];
+    return row ? this.mapRowToListItem(row) : null;
+  }
+
   async listPaginated(
     query: ListPurchaseRequestsRepoQuery,
   ): Promise<PaginatedPurchaseRequests> {
     const offset = (query.page - 1) * query.limit;
+    const { whereScope, componentsFilter } = this.buildScopeFilter(query.scope);
 
-    let whereScope: string;
-    let componentsFilter: string;
+    const extraConditions: string[] = [];
+    const baseParams: unknown[] = [query.userId];
 
-    switch (query.scope) {
-      case 'all':
-        whereScope = '1 = 1';
-        componentsFilter = '';
-        break;
-      case 'requester':
-        whereScope = 'pr.requested_by = me.uid';
-        componentsFilter = '';
-        break;
-      case 'leader':
-        whereScope = `EXISTS (
-          SELECT 1
-          FROM request_components rc
-          INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
-          WHERE rc.purchase_request_id = pr.id
-            AND ua.user_id = me.uid
-        )`;
-        componentsFilter = `AND EXISTS (
-          SELECT 1
-          FROM user_activities ua
-          WHERE ua.activity_id = rc.activity_id
-            AND ua.user_id = me.uid
-        )`;
-        break;
-      default:
-        whereScope = `(pr.requested_by = me.uid OR EXISTS (
-          SELECT 1
-          FROM request_components rc
-          INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
-          WHERE rc.purchase_request_id = pr.id
-            AND ua.user_id = me.uid
-        ))`;
-        componentsFilter = `AND (pr.requested_by = me.uid OR EXISTS (
-          SELECT 1
-          FROM user_activities ua
-          WHERE ua.activity_id = rc.activity_id
-            AND ua.user_id = me.uid
-        ))`;
-        break;
+    if (query.status) {
+      extraConditions.push('AND pr.status = ?');
+      baseParams.push(query.status);
     }
 
-    const statusClause = query.status ? 'AND pr.status = ?' : '';
-    const baseParams: unknown[] = query.status
-      ? [query.userId, query.status]
-      : [query.userId];
+    if (query.search) {
+      extraConditions.push('AND CAST(pr.request_number AS CHAR) LIKE ?');
+      baseParams.push(`%${query.search}%`);
+    }
+
+    const extraSql = extraConditions.join(' ');
 
     const countRows = await this.execute(
       `SELECT COUNT(*) AS total
        FROM purchase_requests pr
        CROSS JOIN (SELECT ? AS uid) me
-       WHERE ${whereScope} ${statusClause}`,
+       WHERE ${whereScope} ${extraSql}`,
       baseParams,
     );
 
@@ -164,60 +163,15 @@ export class PurchaseRequestRepository
     const totalPages = total === 0 ? 0 : Math.ceil(total / query.limit);
 
     const rows = (await this.execute(
-      `SELECT pr.id, pr.request_number, pr.requested_by, pr.status, pr.purchase_type,
-              pr.justification, pr.total_amount_estimated, pr.total_amount_final,
-              pr.created_at, pr.updated_at,
-         (pr.requested_by = me.uid) AS is_requester,
-         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
-          FROM purchase_request_isos pri
-          WHERE pri.purchase_request_id = pr.id) AS iso_ids,
-         (SELECT JSON_ARRAYAGG(JSON_OBJECT(
-                   'id', rc.id,
-                   'componentId', rc.component_id,
-                   'activityId', rc.activity_id,
-                   'fundingSourceId', rc.funding_source_id,
-                   'estimatedAmount', rc.estimated_amount,
-                   'finalAmount', rc.final_amount))
-          FROM request_components rc
-          WHERE rc.purchase_request_id = pr.id
-            ${componentsFilter}) AS components,
-         (SELECT JSON_ARRAYAGG(JSON_OBJECT(
-                   'id', pi.id,
-                   'budgetItemId', pi.budget_item_id,
-                   'measurementUnitId', pi.measurement_unit_id,
-                   'quantity', pi.quantity,
-                   'description', pi.description,
-                   'estimatedAmount', pi.estimated_amount,
-                   'finalAmount', pi.final_amount))
-          FROM product_items pi
-          WHERE pi.purchase_request_id = pr.id) AS product_items
-       FROM purchase_requests pr
-       CROSS JOIN (SELECT ? AS uid) me
-       WHERE ${whereScope} ${statusClause}
+      `${this.buildDetailSelectSql(componentsFilter)}
+       WHERE ${whereScope} ${extraSql}
        ORDER BY pr.request_number DESC
        LIMIT ? OFFSET ?`,
       [...baseParams, query.limit, offset],
     )) as DatabasePurchaseRequestListRow[];
 
-    const data: PurchaseRequestListItem[] = rows.map((row) => ({
-      id: row.id,
-      requestNumber: Number(row.request_number),
-      requestedBy: row.requested_by,
-      status: row.status,
-      purchaseType: row.purchase_type ?? null,
-      justification: row.justification,
-      totalAmountEstimated: Number(row.total_amount_estimated),
-      totalAmountFinal: Number(row.total_amount_final),
-      isoIds: this.parseIds(row.iso_ids),
-      components: this.parseComponents(row.components),
-      productItems: this.parseProductItems(row.product_items),
-      isRequester: Boolean(row.is_requester),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
-
     return {
-      data,
+      data: rows.map((row) => this.mapRowToListItem(row)),
       meta: {
         page: query.page,
         limit: query.limit,
@@ -249,6 +203,128 @@ export class PurchaseRequestRepository
        FROM purchase_requests pr
        ORDER BY pr.request_number DESC`,
     );
+  }
+
+  // ==========================================
+  // Query Builders
+  // ==========================================
+
+  private buildScopeFilter(scope?: PurchaseRequestScope): {
+    whereScope: string;
+    componentsFilter: string;
+  } {
+    switch (scope) {
+      case 'all':
+        return {
+          whereScope: '1 = 1',
+          componentsFilter: '',
+        };
+      case 'requester':
+        return {
+          whereScope: 'pr.requested_by = me.uid',
+          componentsFilter: '',
+        };
+      case 'leader':
+        return {
+          whereScope: `EXISTS (
+            SELECT 1
+            FROM request_components rc
+            INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
+            WHERE rc.purchase_request_id = pr.id
+              AND ua.user_id = me.uid
+          )`,
+          componentsFilter: `AND EXISTS (
+            SELECT 1
+            FROM user_activities ua
+            WHERE ua.activity_id = rc.activity_id
+              AND ua.user_id = me.uid
+          )`,
+        };
+      default:
+        return {
+          whereScope: `(pr.requested_by = me.uid OR EXISTS (
+            SELECT 1
+            FROM request_components rc
+            INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
+            WHERE rc.purchase_request_id = pr.id
+              AND ua.user_id = me.uid
+          ))`,
+          componentsFilter: `AND (pr.requested_by = me.uid OR EXISTS (
+            SELECT 1
+            FROM user_activities ua
+            WHERE ua.activity_id = rc.activity_id
+              AND ua.user_id = me.uid
+          ))`,
+        };
+    }
+  }
+
+  private buildDetailSelectSql(componentsFilter: string): string {
+    return `SELECT pr.id, pr.request_number, pr.requested_by, pr.status, pr.purchase_type,
+              pr.justification, pr.total_amount_estimated, pr.total_amount_final,
+              pr.created_at, pr.updated_at,
+         u.title AS requester_title,
+         u.first_name AS requester_first_name,
+         u.last_name AS requester_last_name,
+         u.email AS requester_email,
+         d.name AS department_name,
+         (pr.requested_by = me.uid) AS is_requester,
+         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
+          FROM purchase_request_isos pri
+          WHERE pri.purchase_request_id = pr.id) AS iso_ids,
+         (SELECT JSON_ARRAYAGG(JSON_OBJECT(
+                   'id', rc.id,
+                   'componentId', rc.component_id,
+                   'activityId', rc.activity_id,
+                   'fundingSourceId', rc.funding_source_id,
+                   'estimatedAmount', rc.estimated_amount,
+                   'finalAmount', rc.final_amount))
+          FROM request_components rc
+          WHERE rc.purchase_request_id = pr.id
+            ${componentsFilter}) AS components,
+         (SELECT JSON_ARRAYAGG(JSON_OBJECT(
+                   'id', pi.id,
+                   'budgetItemId', pi.budget_item_id,
+                   'measurementUnitId', pi.measurement_unit_id,
+                   'quantity', pi.quantity,
+                   'description', pi.description,
+                   'estimatedAmount', pi.estimated_amount,
+                   'finalAmount', pi.final_amount))
+          FROM product_items pi
+          WHERE pi.purchase_request_id = pr.id) AS product_items
+       FROM purchase_requests pr
+       INNER JOIN users u ON u.id = pr.requested_by
+       INNER JOIN departments d ON d.id = u.department_id
+       CROSS JOIN (SELECT ? AS uid) me`;
+  }
+
+  private mapRowToListItem(
+    row: DatabasePurchaseRequestListRow,
+  ): PurchaseRequestListItem {
+    return {
+      id: row.id,
+      requestNumber: Number(row.request_number),
+      requestedBy: row.requested_by,
+      requester: {
+        id: row.requested_by,
+        title: row.requester_title ?? null,
+        firstName: row.requester_first_name,
+        lastName: row.requester_last_name,
+        email: row.requester_email,
+        departmentName: row.department_name,
+      },
+      status: row.status,
+      purchaseType: row.purchase_type ?? null,
+      justification: row.justification,
+      totalAmountEstimated: Number(row.total_amount_estimated),
+      totalAmountFinal: Number(row.total_amount_final),
+      isoIds: this.parseIds(row.iso_ids),
+      components: this.parseComponents(row.components),
+      productItems: this.parseProductItems(row.product_items),
+      isRequester: Boolean(row.is_requester),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
   }
 
   // ==========================================

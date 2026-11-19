@@ -1,12 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { PurchaseRequest, PurchaseRequestID } from './purchase-request.model';
 import {
+  type GetPurchaseRequestByIdInput,
   type ListPurchaseRequestsInput,
   type PaginatedPurchaseRequests,
+  type PurchaseRequestListItem,
   PurchaseRequestLogicI,
   PurchaseRequestRepositoryI,
+  type PurchaseRequestScope,
+  type PurchaseRequestViewer,
 } from './purchase-request.ports';
-import { PurchaseRequestAccessDeniedError } from './purchase-request.errors';
+import {
+  PurchaseRequestAccessDeniedError,
+  PurchaseRequestNotFoundError,
+} from './purchase-request.errors';
 
 const ADMIN_ROLE_CODES = new Set(['super_admin', 'admin']);
 const ALL_SCOPE_ROLE_CODES = new Set([
@@ -30,18 +37,64 @@ export class PurchaseRequestLogic implements PurchaseRequestLogicI {
   async list(
     input: ListPurchaseRequestsInput,
   ): Promise<PaginatedPurchaseRequests> {
-    if (
-      input.clerkMetadataRole &&
-      ADMIN_ROLE_CODES.has(input.clerkMetadataRole)
-    ) {
+    const viewer = await this.resolveAuthorizedViewer(
+      input.clerkId,
+      input.clerkMetadataRole,
+      input.scope,
+    );
+
+    return await this.purchaseRequestRepository.listPaginated({
+      userId: viewer.userId,
+      scope: input.scope,
+      status: input.status,
+      search: input.search,
+      page: input.page,
+      limit: input.limit,
+    });
+  }
+
+  async getById(
+    input: GetPurchaseRequestByIdInput,
+  ): Promise<PurchaseRequestListItem> {
+    const viewer = await this.resolveAuthorizedViewer(
+      input.clerkId,
+      input.clerkMetadataRole,
+      input.scope,
+    );
+
+    const detail = await this.purchaseRequestRepository.findDetailById({
+      id: input.id,
+      userId: viewer.userId,
+      scope: input.scope,
+    });
+
+    if (detail) {
+      return detail;
+    }
+
+    const exists = await this.purchaseRequestRepository.existsById(input.id);
+    if (!exists) {
+      throw new PurchaseRequestNotFoundError(input.id);
+    }
+
+    throw new PurchaseRequestAccessDeniedError(
+      'No tienes permiso para consultar esta solicitud de compra.',
+    );
+  }
+
+  private async resolveAuthorizedViewer(
+    clerkId: string,
+    clerkMetadataRole?: string,
+    scope?: PurchaseRequestScope,
+  ): Promise<PurchaseRequestViewer> {
+    if (clerkMetadataRole && ADMIN_ROLE_CODES.has(clerkMetadataRole)) {
       throw new PurchaseRequestAccessDeniedError(
         'El administrador no tiene permiso para consultar solicitudes de compra.',
       );
     }
 
-    const viewer = await this.purchaseRequestRepository.findViewerByClerkId(
-      input.clerkId,
-    );
+    const viewer =
+      await this.purchaseRequestRepository.findViewerByClerkId(clerkId);
 
     if (!viewer) {
       throw new PurchaseRequestAccessDeniedError(
@@ -56,20 +109,14 @@ export class PurchaseRequestLogic implements PurchaseRequestLogicI {
     }
 
     if (
-      input.scope === 'all' &&
+      scope === 'all' &&
       !viewer.roleCodes.some((code) => ALL_SCOPE_ROLE_CODES.has(code))
     ) {
       throw new PurchaseRequestAccessDeniedError(
-        'No tienes permiso para consultar todas las solicitudes de compra.',
+        'No tienes permiso para consultar todas las solicitudes.',
       );
     }
 
-    return await this.purchaseRequestRepository.listPaginated({
-      userId: viewer.userId,
-      scope: input.scope,
-      status: input.status,
-      page: input.page,
-      limit: input.limit,
-    });
+    return viewer;
   }
 }

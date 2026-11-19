@@ -161,8 +161,14 @@ export class ProductsAmountMismatchError extends InvalidPurchaseRequestError {
 
 export class PurchaseRequestAccessDeniedError extends PurchaseRequestDomainError {
   constructor(
-    message = 'No tienes permiso para consultar solicitudes de compra.',
+    message = 'No tienes permiso para consultar solicitudes.',
   ) {
     super(message);
+  }
+}
+
+export class PurchaseRequestNotFoundError extends PurchaseRequestDomainError {
+  constructor(id: string) {
+    super(`La solicitud con id '${id}' no existe.`);
   }
 }

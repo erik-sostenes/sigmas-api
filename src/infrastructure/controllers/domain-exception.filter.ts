@@ -16,6 +16,7 @@ import {
   PurchaseRequesterNotFoundError,
   PurchaseRequestIsosNotFoundError,
   PurchaseRequestNotCreatedError,
+  PurchaseRequestNotFoundError,
   RequestComponentNotFoundError,
 } from '../../business/purchase-request.errors';
 
@@ -33,6 +34,10 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
   }
 
   private getHttpStatus(error: Error): number {
+    if (error instanceof PurchaseRequestNotFoundError) {
+      return HttpStatus.NOT_FOUND;
+    }
+
     if (error instanceof PurchaseRequestAccessDeniedError) {
       return HttpStatus.FORBIDDEN;
     }
