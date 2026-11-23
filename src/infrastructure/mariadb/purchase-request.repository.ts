@@ -17,6 +17,7 @@ import type {
   ListInboxRepoQuery,
   PaginatedPurchaseRequests,
   PurchaseRequestComponentView,
+  PurchaseRequestHistoryView,
   PurchaseRequestProductItemView,
   PurchaseRequestRepositoryI,
   PurchaseRequestView,
@@ -86,6 +87,7 @@ type DatabaseInboxRow = {
   isos: unknown;
   components: unknown;
   product_items: unknown;
+  history: unknown;
 };
 
 type VisibilitySql = {
@@ -368,7 +370,25 @@ export class PurchaseRequestRepository
           FROM product_items pi
           INNER JOIN budget_items bi ON bi.id = pi.budget_item_id
           INNER JOIN measurement_units mu ON mu.id = pi.measurement_unit_id
-          WHERE pi.purchase_request_id = pr.id) AS product_items
+          WHERE pi.purchase_request_id = pr.id) AS product_items,
+         (SELECT JSON_ARRAYAGG(JSON_OBJECT(
+                   'id', h.id,
+                   'decision', h.decision,
+                   'statusBefore', h.status_before,
+                   'statusAfter', h.status_after,
+                   'justification', h.justification,
+                   'signerName', h.signer_name,
+                   'userId', hu.id, 'userTitle', hu.title,
+                   'userFirstName', hu.first_name, 'userLastName', hu.last_name,
+                   'requestComponentId', h.request_component_id,
+                   'activityId', ha.id, 'activityCode', ha.code, 'activityName', ha.name,
+                   'createdAt', h.created_at)
+                 ORDER BY h.created_at)
+          FROM purchase_request_history h
+          INNER JOIN users hu ON hu.id = h.user_id
+          LEFT JOIN request_components hrc ON hrc.id = h.request_component_id
+          LEFT JOIN activities ha ON ha.id = hrc.activity_id
+          WHERE h.purchase_request_id = pr.id) AS history
        FROM purchase_requests pr
        INNER JOIN users u ON u.id = pr.requested_by
        INNER JOIN departments d ON d.id = u.department_id
@@ -401,6 +421,7 @@ export class PurchaseRequestRepository
       }),
       components: this.parseComponents(row.components),
       productItems: this.parseProductItems(row.product_items),
+      history: this.parseHistory(row.history),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -643,6 +664,39 @@ export class PurchaseRequestRepository
         },
         leaderStatus: c.leaderStatus as ComponentLeaderStatus,
         leaderDecidedAt: this.parseJsonDate(c.leaderDecidedAt),
+      };
+    });
+  }
+
+  private parseHistory(value: unknown): PurchaseRequestHistoryView[] {
+    const asString = (v: unknown): string | null =>
+      typeof v === 'string' ? v : null;
+
+    return this.parseJsonArray(value).map((item) => {
+      const h = item as Record<string, unknown>;
+      return {
+        id: String(h.id),
+        decision: h.decision as PurchaseRequestHistoryView['decision'],
+        statusBefore: h.statusBefore as RequestStatus,
+        statusAfter: asString(h.statusAfter) as RequestStatus | null,
+        justification: asString(h.justification),
+        user: {
+          id: String(h.userId),
+          title: asString(h.userTitle),
+          firstName: String(h.userFirstName),
+          lastName: String(h.userLastName),
+        },
+        signerName: asString(h.signerName),
+        requestComponentId: asString(h.requestComponentId),
+        activity:
+          h.activityId === null || h.activityId === undefined
+            ? null
+            : {
+                id: Number(h.activityId),
+                code: String(h.activityCode),
+                name: String(h.activityName),
+              },
+        createdAt: this.parseJsonDate(h.createdAt) as Date,
       };
     });
   }

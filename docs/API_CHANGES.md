@@ -18,6 +18,7 @@ Bitácora de los cambios de contrato que el frontend tiene que conocer. Cada ent
 | `POST .../leader/:id/rows/:rowId/decision` | ✅ | Nuevo. El líder aprueba o rechaza una fila |
 | `POST .../sufficiency/:id/decision` | ✅ | Nuevo. Suficiencia autoriza o rechaza (primera revisión) |
 | `productItems` en todas las respuestas | ✅ | Ahora salen **en el orden en que se capturaron** |
+| Campo `history` en todas las respuestas | ✅ | Quién aprobó o rechazó, cuándo y por qué |
 | Catálogo de estados | ✅ | Se quitó `RECHAZA_RECURSOS` y hay 7 estados nuevos |
 
 ---
@@ -305,7 +306,7 @@ Cambios respecto a la respuesta anterior:
 
 - **Todo rechazo exige `justification`.** Si llega vacía o solo con espacios, responde 400. Máximo 2000 caracteres.
 - `justification` también se acepta al aprobar. Es opcional y se guarda.
-- Cada decisión queda en un historial (`purchase_request_history`): quién, cuándo, la justificación, y el estado antes y después. 🔜 Todavía no hay un endpoint para consultarlo.
+- Cada decisión queda en un historial: quién, cuándo, la justificación, y el estado antes y después. Viene en el campo `history` de las respuestas (ver la sección siguiente).
 
 ### Errores
 
@@ -332,6 +333,62 @@ Los **409** significan "esto ya cambió mientras lo veías". Lo correcto es refr
   - Mostrar los botones de autorizar y rechazar solo si `status === 'APRUEBA_LIDER'`.
 - Al rechazar, pedir la justificación antes de enviar. Es obligatoria.
 
+## ✅ Historial de decisiones (`history`)
+
+**Qué cambió**
+
+`PurchaseRequestView` trae un campo nuevo, `history`. Viene en **todas las bandejas**, en los listados y en el detalle. Es la lista de decisiones, de la más antigua a la más reciente:
+
+```json
+"history": [
+  {
+    "id": "uuid",
+    "decision": "APROBADO",
+    "statusBefore": "SOLICITADO",
+    "statusAfter": null,
+    "justification": null,
+    "user": { "id": "uuid", "title": "L.C.", "firstName": "Ana", "lastName": "…" },
+    "signerName": null,
+    "requestComponentId": "uuid de la fila",
+    "activity": { "id": 1, "code": "01", "name": "…" },
+    "createdAt": "2026-11-23T08:14:43.122Z"
+  },
+  {
+    "id": "uuid",
+    "decision": "RECHAZADO",
+    "statusBefore": "SOLICITADO",
+    "statusAfter": "RECHAZA_LIDER",
+    "justification": "Sin presupuesto en la actividad",
+    "user": { "id": "uuid", "title": null, "firstName": "Beto", "lastName": "…" },
+    "signerName": null,
+    "requestComponentId": "uuid de la fila",
+    "activity": { "id": 9, "code": "01", "name": "…" },
+    "createdAt": "2026-11-23T08:14:43.154Z"
+  }
+]
+```
+
+| Campo | Significado |
+|---|---|
+| `decision` | `APROBADO` o `RECHAZADO`. Para suficiencia, `AUTORIZA` se guarda como `APROBADO` y `RECHAZA` como `RECHAZADO` |
+| `statusBefore` / `statusAfter` | Estado de la solicitud antes y después. `statusAfter: null` significa que la decisión **no cambió el estado**: por ejemplo, un líder aprobó pero faltan otros |
+| `justification` | Obligatoria en los rechazos y opcional en las aprobaciones |
+| `user` | Quién registró la decisión en el sistema |
+| `requestComponentId` / `activity` | Solo en decisiones de líder: qué fila y qué actividad. En las demás vienen en `null` |
+| `signerName` | 🔜 Para las firmas físicas (Director General, Recursos Financieros). Por ahora siempre `null` |
+
+**Por qué**
+
+Cuando una solicitud se rechaza, todos los involucrados tienen que saber **quién la rechazó y por qué**. Esto incluye al solicitante, que no puede reenviarla.
+
+**Privacidad del líder:** el líder ve las decisiones de los otros líderes (nombre, actividad y justificación), pero **no sus importes**. El historial no incluye importes.
+
+**Qué hacer en el front**
+
+- En el detalle de cualquier bandeja, mostrar el historial como una línea de tiempo.
+- Si la solicitud está rechazada (`RECHAZA_*`), destacar arriba la justificación del último registro: es el motivo del rechazo.
+- Para la bandeja del líder, `requestComponentId` puede ser de una fila que **no** viene en su `components`, porque es de otro líder. Para mostrar el contexto, usar `activity`.
+
 ## ✅ Orden de los productos
 
 - `productItems` ahora sale **siempre en el orden en que el solicitante lo capturó**, en todas las respuestas.
@@ -339,3 +396,14 @@ Los **409** significan "esto ya cambió mientras lo veías". Lo correcto es refr
 - Antes el orden no estaba garantizado, y eso importa porque el formato se imprime y se firma.
 
 **Qué hacer en el front:** mandar `productItems` en el orden en que el usuario los ve, y no reordenarlos al mostrarlos.
+
+## ✅ Fase 5: Arreglos en el alta de usuarios (sin cambios para el front)
+
+Son dos bugs de `user.mariadb.repository.ts`. Ninguno cambia contratos, pero conviene saberlo si algo se veía raro al dar de alta usuarios:
+
+1. **Volver a sincronizar a un líder que ya existía fallaba.**
+   - Al procesarlo otra vez, se volvían a insertar las actividades que ya tenía y chocaban con la base de datos.
+   - Ahora solo se insertan las actividades nuevas.
+2. **Los errores de base de datos no se traducían.**
+   - Un usuario duplicado, un departamento inexistente o un componente inexistente respondían **500 genérico** en lugar de su error específico.
+   - En el webhook de Clerk eso hacía que un evento repetido respondiera 500, y Clerk lo reintentaba. Ahora responde 200, que es lo esperado: el evento se procesa una sola vez.

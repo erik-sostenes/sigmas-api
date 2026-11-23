@@ -212,7 +212,8 @@ CREATE TABLE IF NOT EXISTS purchase_request_history (
     user_id CHAR(36) NOT NULL, -- quien registra la decisión en el sistema
     signer_name VARCHAR(150) NULL, -- solo en capturas de firmas físicas
     justification TEXT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- microsegundos: dos decisiones en el mismo segundo conservan su orden
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     KEY idx_prh_request (purchase_request_id, created_at),
     CONSTRAINT chk_prh_rejection_justified CHECK (
       decision <> 'RECHAZADO' OR (justification IS NOT NULL AND TRIM(justification) <> '')

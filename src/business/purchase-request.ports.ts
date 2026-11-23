@@ -37,7 +37,7 @@ export interface PurchaseRequestRequesterView {
   department: { id: number; name: string };
 }
 
-export interface PurchaseRequestLeaderView {
+export interface PurchaseRequestUserView {
   id: string;
   title: string | null;
   firstName: string;
@@ -52,7 +52,7 @@ export interface PurchaseRequestComponentView {
   fundingSource: CatalogRef;
   estimatedAmount: number;
   finalAmount: number;
-  leader: PurchaseRequestLeaderView;
+  leader: PurchaseRequestUserView;
   leaderStatus: ComponentLeaderStatus;
   leaderDecidedAt: Date | null;
 }
@@ -67,6 +67,23 @@ export interface PurchaseRequestProductItemView {
   finalAmount: number;
 }
 
+// Una decisión registrada (aprobación o rechazo). Lo ven todas las bandejas.
+export interface PurchaseRequestHistoryView {
+  id: string;
+  decision: 'APROBADO' | 'RECHAZADO';
+  statusBefore: RequestStatus;
+  // null si la decisión no cambió el estado (p. ej. un líder aprueba y faltan otros)
+  statusAfter: RequestStatus | null;
+  justification: string | null;
+  user: PurchaseRequestUserView;
+  // Solo en capturas de firmas físicas (etapas futuras)
+  signerName: string | null;
+  // Solo en decisiones de líder: la fila y su actividad (sin importes)
+  requestComponentId: string | null;
+  activity: CatalogRef | null;
+  createdAt: Date;
+}
+
 export interface PurchaseRequestView {
   id: PurchaseRequestID;
   requestNumber: number;
@@ -79,6 +96,8 @@ export interface PurchaseRequestView {
   isos: { id: number; name: string }[];
   components: PurchaseRequestComponentView[];
   productItems: PurchaseRequestProductItemView[];
+  // De la más antigua a la más reciente
+  history: PurchaseRequestHistoryView[];
   createdAt: Date;
   updatedAt: Date;
 }

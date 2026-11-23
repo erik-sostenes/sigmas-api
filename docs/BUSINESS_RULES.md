@@ -226,6 +226,11 @@ Hay una tabla de historial con **un registro por cada decisión**:
 
 Los registros del historial **nunca se borran**.
 
+**Quién ve el historial:** **todas las bandejas** ven el historial completo de cada solicitud que les toca. Así todos saben quién aprobó o rechazó y por qué.
+
+- Esto incluye al líder: ve también las decisiones de los otros líderes, con su nombre, su actividad y su justificación.
+- Lo que el líder **no** ve son los importes de las filas de otros líderes. El historial no incluye importes.
+
 ## 8. Notificaciones
 
 - Por ahora, "notificar" significa que **la solicitud aparece en la bandeja** de quien le toca.
