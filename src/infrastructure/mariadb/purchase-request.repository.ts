@@ -13,6 +13,7 @@ import {
 import type {
   FindInboxItemRepoQuery,
   HistoryEntry,
+  InboxSummary,
   InboxVisibility,
   ListInboxRepoQuery,
   PaginatedPurchaseRequests,
@@ -21,6 +22,9 @@ import type {
   PurchaseRequestProductItemView,
   PurchaseRequestRepositoryI,
   PurchaseRequestView,
+  StatusGroup,
+  StatusGroupCondition,
+  SummarizeInboxRepoQuery,
 } from '../../business/purchase-request.ports';
 import {
   ActivityNotInComponentError,
@@ -126,6 +130,42 @@ export class PurchaseRequestRepository
     });
   }
 
+  // Un solo recorrido: el total de la bandeja y cuántas hay en cada etapa.
+  async summarizeInbox(query: SummarizeInboxRepoQuery): Promise<InboxSummary> {
+    const visibility = this.buildVisibilitySql(query.visibility);
+    const groups = Object.entries(query.groups) as [
+      StatusGroup,
+      StatusGroupCondition,
+    ][];
+
+    const selects: string[] = [];
+    const selectParams: unknown[] = [];
+    for (const [name, condition] of groups) {
+      const group = this.buildStatusGroupSql(condition);
+      selects.push(
+        `SUM(CASE WHEN ${group.sql} THEN 1 ELSE 0 END) AS \`${name}\``,
+      );
+      selectParams.push(...group.params);
+    }
+
+    // Los parámetros del SELECT van antes que el de me.uid (FROM) y los del WHERE.
+    const rows = await this.execute(
+      `SELECT COUNT(*) AS total, ${selects.join(', ')}
+       FROM purchase_requests pr
+       CROSS JOIN (SELECT ? AS uid) me
+       WHERE ${visibility.where}`,
+      [...selectParams, query.viewerId, ...visibility.params],
+    );
+
+    const row = rows[0] ?? {};
+    return {
+      total: Number(row.total ?? 0),
+      byGroup: Object.fromEntries(
+        groups.map(([name]) => [name, Number(row[name] ?? 0)]),
+      ) as Record<StatusGroup, number>,
+    };
+  }
+
   async listInbox(
     query: ListInboxRepoQuery,
   ): Promise<PaginatedPurchaseRequests> {
@@ -141,6 +181,12 @@ export class PurchaseRequestRepository
     if (query.status) {
       conditions.push('pr.status = ?');
       params.push(query.status);
+    }
+
+    if (query.statusGroup) {
+      const group = this.buildStatusGroupSql(query.statusGroup);
+      conditions.push(group.sql);
+      params.push(...group.params);
     }
 
     if (query.search) {
@@ -285,6 +331,33 @@ export class PurchaseRequestRepository
   // ==========================================
   // Query Builders
   // ==========================================
+
+  // Condición booleana sobre pr para una etapa (pestaña): sus estados, más SOLICITADO
+  // con o sin alguna fila ya decidida por su líder.
+  private buildStatusGroupSql(group: StatusGroupCondition): {
+    sql: string;
+    params: unknown[];
+  } {
+    const parts: string[] = [];
+    const params: unknown[] = [];
+
+    if (group.statuses.length > 0) {
+      parts.push(`pr.status IN (${this.placeholders([...group.statuses])})`);
+      params.push(...group.statuses);
+    }
+
+    if (group.solicitado) {
+      const decided = `EXISTS (
+        SELECT 1 FROM request_components drc
+        WHERE drc.purchase_request_id = pr.id AND drc.leader_status <> 'PENDIENTE'
+      )`;
+      parts.push(
+        `(pr.status = 'SOLICITADO' AND ${group.solicitado === 'con_decisiones' ? decided : `NOT ${decided}`})`,
+      );
+    }
+
+    return { sql: `(${parts.join(' OR ') || '1 = 0'})`, params };
+  }
 
   private buildVisibilitySql(
     visibility: InboxVisibility,

@@ -7,7 +7,10 @@ import {
 import {
   type Inbox,
   type InboxFilters,
+  type InboxSummary,
   type InboxVisibility,
+  type StatusGroup,
+  type StatusGroupCondition,
   type LeaderDecisionInput,
   type PaginatedPurchaseRequests,
   type PurchaseRequestView,
@@ -56,6 +59,37 @@ const INBOX_VISIBILITY: Record<Inbox, InboxVisibility> = {
   resources: { kind: 'statuses', statuses: RESOURCES_VISIBLE_STATUSES },
 };
 
+// Etapas de las pestañas (docs/BUSINESS_RULES.md, sección 6).
+// - por_validar: ningún líder ha decidido todavía.
+// - en_proceso: ya empezó y no ha terminado; incluye SOLICITADO con alguna fila aprobada.
+// - aprobadas / rechazadas: terminales.
+const STATUS_GROUP_CONDITIONS: Record<StatusGroup, StatusGroupCondition> = {
+  por_validar: { statuses: [], solicitado: 'sin_decisiones' },
+  en_proceso: {
+    statuses: [
+      'APRUEBA_LIDER',
+      'AUTORIZA_SUFICIENCIA',
+      'EN_REVISION_RECURSOS',
+      'PENDIENTE_APROBACION_SUFICIENCIA',
+      'APRUEBA_SUFICIENCIA',
+      'APRUEBA_REVISION',
+      'AUTORIZA_DIRECCION',
+    ],
+    solicitado: 'con_decisiones',
+  },
+  aprobadas: { statuses: ['APRUEBA_FISCAL'] },
+  rechazadas: {
+    statuses: [
+      'RECHAZA_LIDER',
+      'RECHAZA_SUFICIENCIA',
+      'RECHAZA_SUFICIENCIA_FINAL',
+      'RECHAZA_REVISION',
+      'RECHAZA_DIRECCION',
+      'RECHAZA_FISCAL',
+    ],
+  },
+};
+
 @Injectable()
 export class PurchaseRequestLogic implements PurchaseRequestLogicI {
   constructor(
@@ -77,8 +111,19 @@ export class PurchaseRequestLogic implements PurchaseRequestLogicI {
       ...filters,
       // leaderStatus solo aplica a la bandeja del líder
       leaderStatus: inbox === 'leader' ? filters.leaderStatus : undefined,
+      statusGroup: filters.statusGroup
+        ? STATUS_GROUP_CONDITIONS[filters.statusGroup]
+        : undefined,
       viewerId,
       visibility: INBOX_VISIBILITY[inbox],
+    });
+  }
+
+  async getInboxSummary(inbox: Inbox, viewerId: string): Promise<InboxSummary> {
+    return await this.purchaseRequestRepository.summarizeInbox({
+      viewerId,
+      visibility: INBOX_VISIBILITY[inbox],
+      groups: STATUS_GROUP_CONDITIONS,
     });
   }
 

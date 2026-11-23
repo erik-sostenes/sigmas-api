@@ -86,7 +86,9 @@ Cada fila tiene componente, actividad, fuente de financiamiento ("presupuesto a 
   - La actividad pertenece al componente de su fila.
   - Suma de importes de las filas = suma de importes de los productos, con tolerancia de $0.01.
   - `final_amount` es 0 en filas y productos.
-- 🔜 A futuro: al crear, solo se ofrecen componentes y actividades que ya tienen líder.
+- Al crear, solo se ofrecen las actividades con un **líder activo**, y los componentes que tienen al menos una. Es la misma condición que valida el backend al guardar.
+  - El componente se ofrece por sus actividades, no por su líder de componente, que es solo de seguimiento.
+  - El solicitante no ve quién es el líder.
 
 ## 5. Flujo y estados
 
@@ -212,6 +214,17 @@ El cliente nunca manda parámetros que amplíen lo que puede ver: no hay `scope`
 - Las secciones **no se combinan**. Si un usuario tiene dos roles, usa dos secciones. Si le quitan un rol, pierde esa sección y no hay que cambiar nada más.
 - Cada área sigue viendo como histórico las solicitudes que ya le llegaron, aunque después se rechacen.
 - Por eso hay dos rechazos de suficiencia. Recursos materiales **no** ve `RECHAZA_SUFICIENCIA`, porque nunca le llegó. **Sí** ve `RECHAZA_SUFICIENCIA_FINAL`, porque ya había hecho el estudio de mercado.
+
+**Etapas (pestañas de cada bandeja).** Las define el backend, no el front:
+
+| Etapa | Qué incluye |
+|---|---|
+| Por validar | `SOLICITADO` y **ningún** líder ha decidido ninguna fila |
+| En proceso | `SOLICITADO` con **alguna** fila ya aprobada, y todos los estados no terminales posteriores: `APRUEBA_LIDER`, `AUTORIZA_SUFICIENCIA`, `EN_REVISION_RECURSOS`, `PENDIENTE_APROBACION_SUFICIENCIA`, `APRUEBA_SUFICIENCIA`, `APRUEBA_REVISION`, `AUTORIZA_DIRECCION` |
+| Aprobadas | `APRUEBA_FISCAL` |
+| Rechazadas | Cualquier `RECHAZA_*` |
+
+Cuando se agregue un estado nuevo al flujo, hay que asignarlo a una etapa en `STATUS_GROUP_CONDITIONS` (`purchase-request.logic.ts`).
 
 ## 7. Historial y justificaciones
 

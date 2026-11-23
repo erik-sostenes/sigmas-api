@@ -24,8 +24,10 @@ import {
   type ComponentLeaderStatus,
 } from '../../business/request-component.model';
 import {
+  STATUS_GROUPS,
   SUFFICIENCY_DECISIONS,
   type LeaderDecision,
+  type StatusGroup,
   type SufficiencyDecision,
 } from '../../business/purchase-request.ports';
 
@@ -125,6 +127,14 @@ export class InboxQueryDto {
     message: 'status no es un estatus válido.',
   })
   status?: RequestStatus;
+
+  // Etapa (pestaña): qué estados incluye cada una lo define el backend.
+  @IsOptional()
+  @IsIn(STATUS_GROUPS, {
+    message:
+      'statusGroup debe ser uno de: por_validar, en_proceso, aprobadas, rechazadas.',
+  })
+  statusGroup?: StatusGroup;
 
   @IsOptional()
   @IsString({ message: 'search debe ser texto.' })

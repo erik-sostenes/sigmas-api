@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   type InboxFilters,
+  type InboxSummary,
   type PaginatedPurchaseRequests,
   type PurchaseRequestView,
   PurchaseRequestLogicI,
@@ -37,6 +38,7 @@ const toInboxFilters = (query: LeaderInboxQueryDto): InboxFilters => {
   const search = query.search?.trim();
   return {
     status: query.status,
+    statusGroup: query.statusGroup,
     search: search ? search : undefined,
     leaderStatus: query.leaderStatus,
     page: query.page ?? 1,
@@ -70,6 +72,17 @@ export class PurchaseRequestController {
     );
   }
 
+  // Antes de 'mine/:id': si no, 'summary' se interpretaría como id.
+  @Get('mine/summary')
+  @RequireRole(ROLE.SOLICITANTE)
+  @HttpCode(HttpStatus.OK)
+  async summaryMine(@CurrentViewer() viewer: Viewer): Promise<InboxSummary> {
+    return await this.purchaseRequestLogic.getInboxSummary(
+      'mine',
+      viewer.userId,
+    );
+  }
+
   @Get('mine/:id')
   @RequireRole(ROLE.SOLICITANTE)
   @HttpCode(HttpStatus.OK)
@@ -99,6 +112,17 @@ export class PurchaseRequestController {
       'leader',
       viewer.userId,
       toInboxFilters(query),
+    );
+  }
+
+  // Antes de 'leader/:id': si no, 'summary' se interpretaría como id.
+  @Get('leader/summary')
+  @RequireRole(ROLE.LIDER_ACTIVIDAD)
+  @HttpCode(HttpStatus.OK)
+  async summaryLeader(@CurrentViewer() viewer: Viewer): Promise<InboxSummary> {
+    return await this.purchaseRequestLogic.getInboxSummary(
+      'leader',
+      viewer.userId,
     );
   }
 
@@ -154,6 +178,19 @@ export class PurchaseRequestController {
     );
   }
 
+  // Antes de 'sufficiency/:id': si no, 'summary' se interpretaría como id.
+  @Get('sufficiency/summary')
+  @RequireRole(ROLE.SUFICIENCIA_PRESUPUESTAL)
+  @HttpCode(HttpStatus.OK)
+  async summarySufficiency(
+    @CurrentViewer() viewer: Viewer,
+  ): Promise<InboxSummary> {
+    return await this.purchaseRequestLogic.getInboxSummary(
+      'sufficiency',
+      viewer.userId,
+    );
+  }
+
   @Get('sufficiency/:id')
   @RequireRole(ROLE.SUFICIENCIA_PRESUPUESTAL)
   @HttpCode(HttpStatus.OK)
@@ -200,6 +237,19 @@ export class PurchaseRequestController {
       'resources',
       viewer.userId,
       toInboxFilters(query),
+    );
+  }
+
+  // Antes de 'resources/:id': si no, 'summary' se interpretaría como id.
+  @Get('resources/summary')
+  @RequireRole(ROLE.RECURSOS_MATERIALES)
+  @HttpCode(HttpStatus.OK)
+  async summaryResources(
+    @CurrentViewer() viewer: Viewer,
+  ): Promise<InboxSummary> {
+    return await this.purchaseRequestLogic.getInboxSummary(
+      'resources',
+      viewer.userId,
     );
   }
 

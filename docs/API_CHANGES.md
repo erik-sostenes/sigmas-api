@@ -415,3 +415,49 @@ Son dos bugs de `user.mariadb.repository.ts`. Ninguno cambia contratos, pero con
 - **Qué cambió:** si `roleIds` incluye el rol `super_admin`, el backend responde **400 `InvitationRoleNotAllowedError`**.
 - **Por qué:** el super admin no se crea desde la app. Antes se podía invitar a alguien con ese rol.
 - **Qué hacer en el front:** no ofrecer ese rol en el formulario de invitación. Ya está hecho en `feat/purchase-requests-bandejas`.
+
+## ✅ Etapas (pestañas) y conteos en las bandejas
+
+**Qué cambió**
+
+1. Todas las bandejas (`/mine`, `/leader`, `/sufficiency` y `/resources`) aceptan un query param nuevo, **`statusGroup`**, con los valores `por_validar`, `en_proceso`, `aprobadas` o `rechazadas`. Se puede combinar con los demás filtros.
+2. Ruta nueva por bandeja: **`GET /api/v1/purchase-requests/{inbox}/summary`**. Pide el mismo rol que su bandeja y regresa el total y cuántas hay en cada etapa:
+
+```json
+{ "total": 6, "byGroup": { "por_validar": 1, "en_proceso": 2, "aprobadas": 1, "rechazadas": 2 } }
+```
+
+**Qué incluye cada etapa** (ver `BUSINESS_RULES.md`, sección 6):
+
+| Etapa | Estados |
+|---|---|
+| `por_validar` | `SOLICITADO` y **ningún** líder ha decidido |
+| `en_proceso` | `SOLICITADO` con alguna fila aprobada, y los estados no terminales posteriores |
+| `aprobadas` | `APRUEBA_FISCAL` |
+| `rechazadas` | Cualquier `RECHAZA_*` |
+
+**Por qué:** la tabla está paginada en el servidor y `status` acepta un solo estado. "En proceso" son varios estados, y filtrar en el front solo vería la página actual. Además, qué cuenta como "en proceso" es una regla de negocio y va a cambiar con nuevas etapas, así que el backend la define y el front no reparte estados.
+
+**Qué hacer en el front:** usar pestañas (Todas, Por validar, En proceso, Aprobadas y Rechazadas). Cada pestaña manda su `statusGroup` y muestra su conteo con `/summary`. Hay que volver a pedir el resumen después de crear una solicitud o de decidir.
+
+**Errores:** si `statusGroup` trae un valor que no existe, responde 400.
+
+## ✅ Catálogos: solo componentes y actividades con líder (`withLeader`)
+
+**Qué cambió**
+
+Query param opcional **`withLeader=true`**:
+
+| Ruta | Con `withLeader=true` |
+|---|---|
+| `GET /api/v1/components` | Solo componentes con al menos una actividad con **líder activo** |
+| `GET /api/v1/activities` | Solo actividades con líder activo |
+| `GET /api/v1/activities/component/:componentId` | Solo actividades de ese componente con líder activo |
+
+- Sin el parámetro, o con `withLeader=false`, responden igual que antes. El admin las sigue usando así.
+- **No exponen quién es el líder.**
+- Es la misma condición que valida el backend al crear la solicitud, así que lo que se ofrece siempre se puede enviar.
+
+**Por qué:** el solicitante no debe ver actividades sin líder, porque esas no se pueden usar (el backend responde 422 `ActivityWithoutLeaderError`).
+
+**Qué hacer en el front:** en "Nueva solicitud", pedir los componentes y las actividades con `?withLeader=true`. Si ningún componente tiene actividades con líder, mostrar un aviso en lugar de un formulario vacío.

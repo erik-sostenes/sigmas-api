@@ -112,9 +112,27 @@ export interface PaginatedPurchaseRequests {
   };
 }
 
+// Etapas que ve el usuario (pestañas). Qué estados entran en cada una lo define
+// la lógica de negocio (STATUS_GROUP_CONDITIONS), no el front.
+export const STATUS_GROUPS = [
+  'por_validar',
+  'en_proceso',
+  'aprobadas',
+  'rechazadas',
+] as const;
+export type StatusGroup = (typeof STATUS_GROUPS)[number];
+
+// Cómo se arma un grupo: estados, más (opcional) las solicitudes en SOLICITADO
+// según si algún líder ya decidió alguna fila.
+export interface StatusGroupCondition {
+  statuses: readonly RequestStatus[];
+  solicitado?: 'sin_decisiones' | 'con_decisiones';
+}
+
 // Filtros que manda el front. Solo reducen lo que la bandeja ya permite ver.
 export interface InboxFilters {
   status?: RequestStatus;
+  statusGroup?: StatusGroup;
   search?: string;
   // Solo bandeja del líder: estado de sus filas
   leaderStatus?: ComponentLeaderStatus;
@@ -122,9 +140,22 @@ export interface InboxFilters {
   limit: number;
 }
 
-export interface ListInboxRepoQuery extends InboxFilters {
+export interface ListInboxRepoQuery extends Omit<InboxFilters, 'statusGroup'> {
   viewerId: string;
   visibility: InboxVisibility;
+  statusGroup?: StatusGroupCondition;
+}
+
+// Cuántas solicitudes hay en la bandeja y en cada etapa (para las pestañas).
+export interface InboxSummary {
+  total: number;
+  byGroup: Record<StatusGroup, number>;
+}
+
+export interface SummarizeInboxRepoQuery {
+  viewerId: string;
+  visibility: InboxVisibility;
+  groups: Record<StatusGroup, StatusGroupCondition>;
 }
 
 export interface FindInboxItemRepoQuery {
@@ -181,6 +212,10 @@ export abstract class PurchaseRequestLogicI {
     viewerId: string,
     id: PurchaseRequestID,
   ): Promise<PurchaseRequestView>;
+  abstract getInboxSummary(
+    inbox: Inbox,
+    viewerId: string,
+  ): Promise<InboxSummary>;
   abstract decideAsLeader(
     input: LeaderDecisionInput,
   ): Promise<PurchaseRequestView>;
@@ -198,6 +233,9 @@ export abstract class PurchaseRequestRepositoryI {
   abstract findInboxItem(
     query: FindInboxItemRepoQuery,
   ): Promise<PurchaseRequestView | null>;
+  abstract summarizeInbox(
+    query: SummarizeInboxRepoQuery,
+  ): Promise<InboxSummary>;
   // Carga la solicitud con sus filas bloqueadas (FOR UPDATE), aplica `change` y guarda
   // estado, decisiones de las filas y el registro de historial en una sola transacción.
   // Regresa false si la solicitud no existe. Si `change` lanza, no se guarda nada.
