@@ -250,6 +250,24 @@ Fotos del proceso actual en papel. Sirven como referencia de qué datos maneja c
 ## 10. Pendientes por definir
 
 1. Recursos materiales: cómo se asigna cada solicitud a una persona y si existe un caso "sin proveedor".
+   - **Propuesta de pantallas**, rescatada del plan anterior del front (sin validar):
+
+     | Bandeja | Contenido |
+     |---|---|
+     | Clasificación | `EN_REVISION_RECURSOS` sin `purchase_type` todavía |
+     | Compras directas (mostrador) | `EN_REVISION_RECURSOS` + `COMPRA_MOSTRADOR` |
+     | Adjudicación directa | `EN_REVISION_RECURSOS` + `COMPRA_ADJ_DIRECTA` |
+     | Licitación | `EN_REVISION_RECURSOS` + `COMPRA_LICITACION` |
+     | Invitación a 3 personas | `EN_REVISION_RECURSOS` + `COMPRA_INVITACION` |
+     | Solicitudes aprobadas | `APRUEBA_SUFICIENCIA`, con búsqueda por folio y por tipo, por separado o juntos |
+
+   - Recorrido propuesto:
+     1. Al clasificar, la solicitud sale de Clasificación y entra a la bandeja de su tipo.
+     2. Al terminar el estudio, pasa a `PENDIENTE_APROBACION_SUFICIENCIA` y sale de la bandeja de su tipo.
+     3. Cuando suficiencia la aprueba, aparece en Aprobadas.
+   - Para esto el backend necesitaría:
+     - filtros de `purchaseType` y "sin clasificar" en `/resources`,
+     - los endpoints de clasificar y terminar el estudio.
 2. Quién reparte el monto final entre las filas de distribución después del estudio de mercado.
 3. Qué documentos se generan cuando suficiencia aprueba los montos finales.
 4. Alternativa al rechazo cuando el monto final excede el estimado: consultar a los líderes.
