@@ -7,7 +7,8 @@ import {
 } from '../../business/invitation.errors';
 import { ClerkInvitationRepositoryI } from '../../business/invitation.ports';
 
-const DEFAULT_REDIRECT_URL = 'http://localhost:5173/user-register';
+const DEFAULT_FRONTEND_ORIGIN = 'http://localhost:5173';
+const INVITATION_REDIRECT_PATH = '/user-register';
 
 @Injectable()
 export class ClerkInvitationRepository implements ClerkInvitationRepositoryI {
@@ -16,8 +17,11 @@ export class ClerkInvitationRepository implements ClerkInvitationRepositoryI {
   });
 
   async sendClerkInvitation(invitation: Invitation): Promise<string> {
-    const redirectUrl =
-      process.env.CLERK_INVITATION_REDIRECT_URL?.trim() || DEFAULT_REDIRECT_URL;
+    // El primer origen de ORIGINS es el frontend al que vuelve el invitado.
+    const frontendOrigin =
+      process.env.ORIGINS?.split(',')[0]?.trim().replace(/\/+$/, '') ||
+      DEFAULT_FRONTEND_ORIGIN;
+    const redirectUrl = `${frontendOrigin}${INVITATION_REDIRECT_PATH}`;
 
     const publicMetadata = {
       firstName: invitation.firstName,
