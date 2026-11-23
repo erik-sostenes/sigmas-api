@@ -23,7 +23,9 @@ export class ClerkAuthGuard implements CanActivate {
     try {
       const payload = await verifyToken(token, {
         secretKey: process.env.CLERK_SECRET_KEY,
-        authorizedParties: ['http://localhost:5173'],
+        authorizedParties: process.env.ORIGINS?.split(',')
+          .map((origin) => origin.trim())
+          .filter((origin) => origin.length > 0),
       });
 
       request.auth = {
