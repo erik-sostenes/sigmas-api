@@ -1,40 +1,42 @@
 import {
   Controller,
+  DefaultValuePipe,
   Get,
-  HttpCode,
-  HttpStatus,
   Param,
+  ParseBoolPipe,
   ParseIntPipe,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ActivityLogicI } from '../../business/activity.ports';
 import { ActivityItem } from '../../business/activity.model';
+import { ActivityLogicI } from '../../business/activity.ports';
 import { ClerkAuthGuard } from './guards/clerk-auth.guard';
 
-@Controller()
+// ?withLeader=true: solo actividades con líder activo (las que se pueden usar en una solicitud).
+// Sin el parámetro regresa todas, como las necesita el admin.
+@Controller('api/v1/activities')
 @UseGuards(ClerkAuthGuard)
 export class ActivityController {
   constructor(private readonly activityLogic: ActivityLogicI) {}
 
-  @Get('api/v1/activities')
-  @HttpCode(HttpStatus.OK)
-  async getActivities(
-    @Query('componentId') componentId?: string,
+  @Get()
+  async findAll(
+    @Query('withLeader', new DefaultValuePipe(false), ParseBoolPipe)
+    withLeader: boolean,
   ): Promise<ActivityItem[]> {
-    const parsedId =
-      componentId !== undefined && componentId !== ''
-        ? Number.parseInt(componentId, 10)
-        : undefined;
-    return await this.activityLogic.getActivities(parsedId);
+    return await this.activityLogic.getActivities({
+      withActiveLeader: withLeader,
+    });
   }
 
-  @Get('api/v1/components/:componentId/activities')
-  @HttpCode(HttpStatus.OK)
-  async getActivitiesByComponent(
+  @Get('component/:componentId')
+  async findByComponent(
     @Param('componentId', ParseIntPipe) componentId: number,
+    @Query('withLeader', new DefaultValuePipe(false), ParseBoolPipe)
+    withLeader: boolean,
   ): Promise<ActivityItem[]> {
-    return await this.activityLogic.getActivitiesByComponent(componentId);
+    return await this.activityLogic.getActivitiesByComponent(componentId, {
+      withActiveLeader: withLeader,
+    });
   }
 }
-

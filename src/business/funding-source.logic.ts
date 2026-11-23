@@ -15,4 +15,3 @@ export class FundingSourceLogic implements FundingSourceLogicI {
     return await this.fundingSourceRepository.findAll();
   }
 }
-

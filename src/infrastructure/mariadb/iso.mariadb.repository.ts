@@ -6,7 +6,6 @@ import { IsoRepositoryI } from '../../business/iso.ports';
 
 type IsoRow = {
   id: number;
-  code: string;
   name: string;
 };
 
@@ -16,14 +15,13 @@ export class IsoMariaDBRepository implements IsoRepositoryI {
 
   async findAll(): Promise<IsoStandard[]> {
     const rows = await this.pool.execute<IsoRow[]>(
-      `SELECT id, code, name
+      `SELECT id, name
        FROM isos
        ORDER BY id ASC`,
     );
 
     return rows.map((row) => ({
       id: Number(row.id),
-      code: row.code,
       name: row.name,
     }));
   }

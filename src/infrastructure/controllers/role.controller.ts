@@ -1,23 +1,15 @@
-import {
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  UseGuards,
-} from '@nestjs/common';
-import { UserAssignmentLogicI } from '../../business/user-assignment.ports';
-import { RoleOption } from '../../business/user-assignment.model';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { RoleLogicI } from '../../business/role.ports';
+import { Role } from '../../business/role.model';
 import { ClerkAuthGuard } from './guards/clerk-auth.guard';
 
 @Controller('api/v1/roles')
 @UseGuards(ClerkAuthGuard)
 export class RoleController {
-  constructor(private readonly userAssignmentLogic: UserAssignmentLogicI) {}
+  constructor(private readonly roleLogic: RoleLogicI) {}
 
   @Get()
-  @HttpCode(HttpStatus.OK)
-  async getRoles(): Promise<RoleOption[]> {
-    return await this.userAssignmentLogic.getRoles();
+  async findAll(): Promise<Role[]> {
+    return await this.roleLogic.getRoles();
   }
 }
-

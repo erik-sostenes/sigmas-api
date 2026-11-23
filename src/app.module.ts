@@ -3,11 +3,14 @@ import { ConfigModule } from '@nestjs/config';
 import { PurchaseRequestModule } from './purchase-request.module';
 import { InvitationModule } from './invitation.module';
 import { UserModule } from './user.module';
-import { UserAssignmentModule } from './user-assignment.module';
 import { IsoModule } from './iso.module';
 import { ComponentModule } from './component.module';
-import { ActivityModule } from './activity.module';
 import { FundingSourceModule } from './funding-source.module';
+import { DepartmentModule } from './department.module';
+import { RoleModule } from './role.module';
+import { ActivityModule } from './activity.module';
+import { MeasurementUnitModule } from './measurement-unit.module';
+import { BudgetItemModule } from './budget-item.module';
 
 @Module({
   imports: [
@@ -18,11 +21,14 @@ import { FundingSourceModule } from './funding-source.module';
     PurchaseRequestModule,
     InvitationModule,
     UserModule,
-    UserAssignmentModule,
     IsoModule,
     ComponentModule,
     ActivityModule,
+    DepartmentModule,
+    RoleModule,
     FundingSourceModule,
+    MeasurementUnitModule,
+    BudgetItemModule,
   ],
 })
 export class AppModule {}

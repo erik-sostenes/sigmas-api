@@ -8,14 +8,15 @@ import {
 import type { Response } from 'express';
 import {
   ActivityAlreadyHasLeaderError,
+  ClerkUserError,
   InvalidUserActivitiesRoleError,
-  InvalidUserAssignmentError,
   LeaderUserRequiresActivitiesError,
   UserActivitiesNotFoundError,
   UserAlreadyExistsError,
   UserDepartmentNotFoundError,
   UserEmailConflictError,
   UserNotCreatedError,
+  UserNotRegisteredError,
   UserRolesNotFoundError,
 } from '../../business/user.errors';
 
@@ -25,11 +26,12 @@ import {
   UserDepartmentNotFoundError,
   UserRolesNotFoundError,
   UserActivitiesNotFoundError,
-  InvalidUserAssignmentError,
   InvalidUserActivitiesRoleError,
   LeaderUserRequiresActivitiesError,
   ActivityAlreadyHasLeaderError,
   UserNotCreatedError,
+  UserNotRegisteredError,
+  ClerkUserError,
 )
 export class UserExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(UserExceptionFilter.name);
@@ -56,11 +58,14 @@ export class UserExceptionFilter implements ExceptionFilter {
       error instanceof UserDepartmentNotFoundError ||
       error instanceof UserRolesNotFoundError ||
       error instanceof UserActivitiesNotFoundError ||
-      error instanceof InvalidUserAssignmentError ||
       error instanceof InvalidUserActivitiesRoleError ||
       error instanceof LeaderUserRequiresActivitiesError
     ) {
       status = HttpStatus.UNPROCESSABLE_ENTITY;
+    } else if (error instanceof UserNotRegisteredError) {
+      status = HttpStatus.FORBIDDEN;
+    } else if (error instanceof ClerkUserError) {
+      status = HttpStatus.BAD_GATEWAY;
     }
 
     this.logger.warn(`[${error.name}] ${error.message}`);

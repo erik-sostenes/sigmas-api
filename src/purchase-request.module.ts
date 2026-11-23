@@ -7,9 +7,10 @@ import {
 } from './business/purchase-request.ports';
 import { PurchaseRequestRepository } from './infrastructure/mariadb/purchase-request.repository';
 import { MariaDbModule } from './mariadb.module';
+import { ViewerModule } from './viewer.module';
 
 @Module({
-  imports: [MariaDbModule],
+  imports: [MariaDbModule, ViewerModule],
   controllers: [PurchaseRequestController],
   providers: [
     { provide: PurchaseRequestLogicI, useClass: PurchaseRequestLogic },

@@ -1,57 +1,73 @@
-import { Inject, Injectable } from '@nestjs/common';
-import type { Pool } from 'mariadb';
-import { MARIADB_POOL } from './mariadb.connection';
-import { ActivityRepositoryI } from '../../business/activity.ports';
+import { Injectable } from '@nestjs/common';
 import { ActivityItem } from '../../business/activity.model';
+import type {
+  ActivityFilters,
+  ActivityRepositoryI,
+} from '../../business/activity.ports';
+import { MariaDBRepository, type Row } from './mariadb.repository';
 
-type ActivityRow = {
+type DatabaseActivityRow = {
   id: number;
+  component_id: number;
   code: string;
   name: string;
-  component_id: number;
-  comp_code: string;
-  comp_name: string;
 };
 
 @Injectable()
-export class ActivityMariaDBRepository implements ActivityRepositoryI {
-  constructor(@Inject(MARIADB_POOL) private readonly pool: Pool) {}
+export class ActivityRepository
+  extends MariaDBRepository<ActivityItem>
+  implements ActivityRepositoryI
+{
+  async findAll(filters?: ActivityFilters): Promise<ActivityItem[]> {
+    return await this.searchMany(
+      `SELECT a.id, a.component_id, a.code, a.name
+         FROM activities a
+        WHERE 1 = 1 ${this.leaderCondition(filters)}
+        ORDER BY a.code ASC`,
+    );
+  }
 
-  async findAll(componentId?: number): Promise<ActivityItem[]> {
-    const hasFilter = componentId !== undefined && !Number.isNaN(componentId);
+  async findByIds(ids: number[]): Promise<ActivityItem[]> {
+    if (ids.length === 0) return [];
+    const placeholders = this.placeholders(ids);
+    return await this.searchMany(
+      `SELECT id, component_id, code, name 
+     FROM activities 
+     WHERE id IN (${placeholders})`,
+      ids,
+    );
+  }
 
-    const query = `
-      SELECT
-        a.id,
-        a.code,
-        a.name,
-        c.id AS component_id,
-        c.code AS comp_code,
-        c.name AS comp_name
-      FROM activities a
-      INNER JOIN components c ON c.id = a.component_id
-      ${hasFilter ? 'WHERE a.component_id = ?' : ''}
-      ORDER BY c.code ASC, a.code ASC
-    `;
+  async findByComponentId(
+    componentId: number,
+    filters?: ActivityFilters,
+  ): Promise<ActivityItem[]> {
+    return await this.searchMany(
+      `SELECT a.id, a.component_id, a.code, a.name
+         FROM activities a
+        WHERE a.component_id = ? ${this.leaderCondition(filters)}
+        ORDER BY a.code ASC`,
+      [componentId],
+    );
+  }
 
-    const rows = hasFilter
-      ? await this.pool.execute<ActivityRow[]>(query, [componentId])
-      : await this.pool.execute<ActivityRow[]>(query);
+  // Misma condición que usa la creación de solicitudes para fijar el líder de cada fila.
+  private leaderCondition(filters?: ActivityFilters): string {
+    if (!filters?.withActiveLeader) return '';
+    return `AND EXISTS (
+      SELECT 1
+      FROM user_activities ua
+      INNER JOIN users u ON u.id = ua.user_id AND u.is_active = TRUE
+      WHERE ua.activity_id = a.id
+    )`;
+  }
 
-    return rows.map((row) => ({
+  protected toDomain(row: DatabaseActivityRow): ActivityItem {
+    return ActivityItem.rehydrate({
       id: Number(row.id),
+      componentId: Number(row.component_id),
       code: row.code,
       name: row.name,
-      component: {
-        id: Number(row.component_id),
-        code: row.comp_code,
-        name: row.comp_name,
-      },
-    }));
-  }
-
-  async findByComponentId(componentId: number): Promise<ActivityItem[]> {
-    return await this.findAll(componentId);
+    });
   }
 }
-

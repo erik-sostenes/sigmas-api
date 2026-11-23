@@ -1,54 +1,95 @@
 import { Injectable } from '@nestjs/common';
 import { User, UserId } from './user.model';
-import { UserLogicI, UserRepositoryI } from './user.ports';
-import { LIDER_ACTIVIDAD_ROLE_CODE } from './user-assignment.model';
 import {
-  InvalidUserActivitiesRoleError,
-  InvalidUserAssignmentError,
-  LeaderUserRequiresActivitiesError,
+  ClerkUserRepositoryI,
+  UserLogicI,
+  UserRepositoryI,
+} from './user.ports';
+import { InvitationRepositoryI } from './invitation.ports';
+import {
+  ClerkUserError,
+  UserAlreadyExistsError,
+  UserNotCreatedError,
+  UserNotRegisteredError,
 } from './user.errors';
 
 @Injectable()
 export class UserLogic implements UserLogicI {
-  constructor(private readonly userRepository: UserRepositoryI) {}
+  constructor(
+    private readonly userRepository: UserRepositoryI,
+    private readonly invitationRepository: InvitationRepositoryI,
+    private readonly clerkUserRepository: ClerkUserRepositoryI,
+  ) {}
 
-  async create(user: User): Promise<UserId> {
-    if (!user.clerkId || !user.email) {
-      throw new InvalidUserAssignmentError(
-        'El identificador de Clerk y el correo electrónico son obligatorios.',
-      );
+  async createFromInvitation(
+    clerkId: string,
+    email: string,
+  ): Promise<UserId | null> {
+    // 1. Buscar la invitación
+    const invitation = await this.invitationRepository.findByEmail(email);
+
+    // Si no hay invitación, ignoramos el evento (ej. Super Admin creado desde Clerk)
+    if (!invitation) {
+      return null;
     }
 
-    if (!Number.isInteger(user.departmentId) || user.departmentId < 1) {
-      throw new InvalidUserAssignmentError(
-        'El ID de departamento debe ser un entero positivo.',
-      );
+    // 2. Armar la entidad User con los datos de la invitación
+    const user = User.create({
+      clerkId: clerkId,
+      email: invitation.email,
+      firstName: invitation.firstName,
+      lastName: invitation.lastName,
+      departmentId: invitation.departmentId,
+      componentId: invitation.componentId,
+      title: invitation.title,
+      roleIds: invitation.roleIds,
+      activityIds: invitation.activityIds,
+    });
+
+    // 3. Guardar en BD (UserMariaDBRepository ya hace las validaciones pesadas)
+    const userId = await this.userRepository.save(user);
+
+    // 4. Borrar la invitación (ya se usó)
+    if (invitation.id) {
+      await this.invitationRepository.delete(invitation.id);
     }
 
-    if (user.roleCodes.length === 0 && user.roleIds.length === 0) {
-      throw new InvalidUserAssignmentError(
-        'El usuario debe tener al menos un rol asignado.',
-      );
+    return userId;
+  }
+
+  async getUsers(): Promise<User[]> {
+    return await this.userRepository.findAll();
+  }
+
+  // Se llama al iniciar sesión: si Clerk registró al usuario pero el webhook
+  // no llegó o falló, se crea aquí a partir de su invitación pendiente.
+  async syncFromClerk(clerkId: string): Promise<User> {
+    const existing = await this.userRepository.findByClerkId(clerkId);
+    if (existing) {
+      return existing;
     }
 
-    const hasActivities =
-      user.activityIds.length > 0 || user.activityCodes.length > 0;
-    const hasRoleCodes = user.roleCodes.length > 0;
+    const email = await this.clerkUserRepository.getPrimaryEmail(clerkId);
+    if (!email) {
+      throw new ClerkUserError('El usuario no tiene un correo principal.');
+    }
 
-    if (hasRoleCodes) {
-      const isActivityLeader = user.roleCodes.includes(
-        LIDER_ACTIVIDAD_ROLE_CODE,
-      );
-
-      if (!isActivityLeader && hasActivities) {
-        throw new InvalidUserActivitiesRoleError();
+    try {
+      const userId = await this.createFromInvitation(clerkId, email);
+      if (!userId) {
+        throw new UserNotRegisteredError(email);
       }
-
-      if (isActivityLeader && !hasActivities) {
-        throw new LeaderUserRequiresActivitiesError();
+    } catch (error) {
+      // El webhook pudo haber creado al usuario al mismo tiempo
+      if (!(error instanceof UserAlreadyExistsError)) {
+        throw error;
       }
     }
 
-    return await this.userRepository.save(user);
+    const user = await this.userRepository.findByClerkId(clerkId);
+    if (!user) {
+      throw new UserNotCreatedError();
+    }
+    return user;
   }
 }

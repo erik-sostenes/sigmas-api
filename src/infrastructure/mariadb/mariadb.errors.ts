@@ -17,3 +17,18 @@ export function isDuplicateEntry(error: unknown): boolean {
 export function isForeignKeyViolation(error: unknown): boolean {
   return isSqlError(error) && error.errno === MariaDBErrno.NO_REFERENCED_ROW;
 }
+
+// Nombre del constraint que falló. Útil con FKs compuestas, donde la columna no basta.
+export function foreignKeyConstraint(error: unknown): string | null {
+  if (!isSqlError(error)) return null;
+  const msg = error.sqlMessage ?? error.message ?? '';
+  const match = msg.match(/CONSTRAINT `([^`]+)` FOREIGN KEY/i);
+  return match ? match[1] : null;
+}
+
+export function foreignKeyColumn(error: unknown): string | null {
+  if (!isSqlError(error)) return null;
+  const msg = error.sqlMessage ?? error.message ?? '';
+  const match = msg.match(/FOREIGN KEY \(`([^`]+)`\)/i);
+  return match ? match[1] : null;
+}

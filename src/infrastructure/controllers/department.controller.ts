@@ -1,23 +1,15 @@
-import {
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  UseGuards,
-} from '@nestjs/common';
-import { UserAssignmentLogicI } from '../../business/user-assignment.ports';
-import { DepartmentOption } from '../../business/user-assignment.model';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Department } from '../../business/department.model';
+import { DepartmentLogicI } from '../../business/department.ports';
 import { ClerkAuthGuard } from './guards/clerk-auth.guard';
 
 @Controller('api/v1/departments')
 @UseGuards(ClerkAuthGuard)
 export class DepartmentController {
-  constructor(private readonly userAssignmentLogic: UserAssignmentLogicI) {}
+  constructor(private readonly departmentLogic: DepartmentLogicI) {}
 
   @Get()
-  @HttpCode(HttpStatus.OK)
-  async getDepartments(): Promise<DepartmentOption[]> {
-    return await this.userAssignmentLogic.getDepartments();
+  async findAll(): Promise<Department[]> {
+    return await this.departmentLogic.getDepartments();
   }
 }
-
