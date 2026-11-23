@@ -17,7 +17,7 @@ import {
   PurchaseRequestRepositoryI,
 } from './purchase-request.ports';
 import { PurchaseRequestNotFoundError } from './purchase-request.errors';
-import { STATUS_GROUP_CONDITIONS } from './purchase-request.stages';
+import { INBOX_STAGES } from './purchase-request.stages';
 
 // Cada área ve las solicitudes desde que le llegan y las conserva como histórico.
 // Las rechazadas antes de llegarle no las ve (docs/BUSINESS_RULES.md, sección 6).
@@ -80,8 +80,9 @@ export class PurchaseRequestLogic implements PurchaseRequestLogicI {
       // leaderStatus solo aplica a la bandeja del líder
       leaderStatus: inbox === 'leader' ? filters.leaderStatus : undefined,
       statusGroup: filters.statusGroup
-        ? STATUS_GROUP_CONDITIONS[filters.statusGroup]
+        ? INBOX_STAGES[inbox][filters.statusGroup]
         : undefined,
+      stages: INBOX_STAGES[inbox],
       viewerId,
       visibility: INBOX_VISIBILITY[inbox],
     });
@@ -91,7 +92,7 @@ export class PurchaseRequestLogic implements PurchaseRequestLogicI {
     return await this.purchaseRequestRepository.summarizeInbox({
       viewerId,
       visibility: INBOX_VISIBILITY[inbox],
-      groups: STATUS_GROUP_CONDITIONS,
+      groups: INBOX_STAGES[inbox],
     });
   }
 
@@ -105,6 +106,7 @@ export class PurchaseRequestLogic implements PurchaseRequestLogicI {
       id,
       viewerId,
       visibility: INBOX_VISIBILITY[inbox],
+      stages: INBOX_STAGES[inbox],
     });
 
     if (!item) {

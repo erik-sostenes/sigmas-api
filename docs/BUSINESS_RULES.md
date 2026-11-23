@@ -215,16 +215,17 @@ El cliente nunca manda parámetros que amplíen lo que puede ver: no hay `scope`
 - Cada área sigue viendo como histórico las solicitudes que ya le llegaron, aunque después se rechacen.
 - Por eso hay dos rechazos de suficiencia. Recursos materiales **no** ve `RECHAZA_SUFICIENCIA`, porque nunca le llegó. **Sí** ve `RECHAZA_SUFICIENCIA_FINAL`, porque ya había hecho el estudio de mercado.
 
-**Etapas (pestañas de cada bandeja).** Las define el backend, no el front:
+**Etapas (pestañas de cada bandeja).** Las define el backend **por bandeja**. "Por validar" es **lo que le toca a quien consulta**:
 
-| Etapa | Qué incluye |
-|---|---|
-| Por validar | `SOLICITADO` y **ningún** líder ha decidido ninguna fila |
-| En proceso | `SOLICITADO` con **alguna** fila ya aprobada, y todos los estados no terminales posteriores: `APRUEBA_LIDER`, `AUTORIZA_SUFICIENCIA`, `EN_REVISION_RECURSOS`, `PENDIENTE_APROBACION_SUFICIENCIA`, `APRUEBA_SUFICIENCIA`, `APRUEBA_REVISION`, `AUTORIZA_DIRECCION` |
-| Aprobadas | `APRUEBA_FISCAL` |
-| Rechazadas | Cualquier `RECHAZA_*` |
+| Bandeja | Por validar ("Por decidir" en el front, salvo para el solicitante) | En proceso |
+|---|---|---|
+| Solicitante | `SOLICITADO` y **ningún** líder ha decidido | `SOLICITADO` con alguna fila aprobada, más los estados no terminales posteriores |
+| Líder de actividad | `SOLICITADO` con una **fila suya pendiente** | `SOLICITADO` donde ya decidió todas sus filas, más los estados no terminales posteriores |
+| Suficiencia | `APRUEBA_LIDER` (1ª revisión) y `PENDIENTE_APROBACION_SUFICIENCIA` (2ª revisión) | `AUTORIZA_SUFICIENCIA`, `EN_REVISION_RECURSOS`, `APRUEBA_SUFICIENCIA`, `APRUEBA_REVISION`, `AUTORIZA_DIRECCION` |
+| Recursos materiales | `AUTORIZA_SUFICIENCIA` (le llegó) y `EN_REVISION_RECURSOS` (estudio en curso) | `PENDIENTE_APROBACION_SUFICIENCIA`, `APRUEBA_SUFICIENCIA`, `APRUEBA_REVISION`, `AUTORIZA_DIRECCION` |
 
-Cuando se agregue un estado nuevo al flujo, hay que asignarlo a una etapa en `STATUS_GROUP_CONDITIONS` (`purchase-request.logic.ts`).
+- En todas las bandejas: **Aprobadas** = `APRUEBA_FISCAL` y **Rechazadas** = cualquier `RECHAZA_*`.
+- Cuando se agregue un estado nuevo al flujo, hay que asignarlo a una etapa **en cada bandeja que lo vea**, en `INBOX_STAGES` (`purchase-request.stages.ts`).
 
 ## 7. Historial y justificaciones
 

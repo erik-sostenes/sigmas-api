@@ -427,20 +427,22 @@ Son dos bugs de `user.mariadb.repository.ts`. Ninguno cambia contratos, pero con
 { "total": 6, "byGroup": { "por_validar": 1, "en_proceso": 2, "aprobadas": 1, "rechazadas": 2 } }
 ```
 
-**Qué incluye cada etapa** (ver `BUSINESS_RULES.md`, sección 6):
+**Qué incluye cada etapa:** depende de la bandeja. `por_validar` es **lo que le toca a quien consulta**. La tabla completa está en `BUSINESS_RULES.md`, sección 6. En resumen:
 
-| Etapa | Estados |
+| Bandeja | `por_validar` |
 |---|---|
-| `por_validar` | `SOLICITADO` y **ningún** líder ha decidido |
-| `en_proceso` | `SOLICITADO` con alguna fila aprobada, y los estados no terminales posteriores |
-| `aprobadas` | `APRUEBA_FISCAL` |
-| `rechazadas` | Cualquier `RECHAZA_*` |
+| `/mine` | Ningún líder ha decidido |
+| `/leader` | Le queda una fila suya pendiente |
+| `/sufficiency` | `APRUEBA_LIDER` o `PENDIENTE_APROBACION_SUFICIENCIA` |
+| `/resources` | `AUTORIZA_SUFICIENCIA` o `EN_REVISION_RECURSOS` |
+
+`aprobadas` (`APRUEBA_FISCAL`) y `rechazadas` (`RECHAZA_*`) son iguales en todas.
 
 **Por qué:** la tabla está paginada en el servidor y `status` acepta un solo estado. "En proceso" son varios estados, y filtrar en el front solo vería la página actual. Además, qué cuenta como "en proceso" es una regla de negocio y va a cambiar con nuevas etapas, así que el backend la define y el front no reparte estados.
 
-3. Cada solicitud de las respuestas (listado y detalle) trae **`statusGroup`**, su etapa. El backend la calcula con **todas** las filas. Así, en la bandeja del líder, una solicitud donde otro líder ya aprobó sale como `en_proceso`, aunque el líder solo reciba sus filas y la suya siga pendiente.
+3. Cada solicitud de las respuestas (listado y detalle) trae **`statusGroup`**, su etapa **según la bandeja que consulta**. La misma solicitud puede ser `por_validar` para suficiencia y `en_proceso` para el solicitante.
 
-**Qué hacer en el front:** usar pestañas (Todas, Por validar, En proceso, Aprobadas y Rechazadas). Para el color de cada solicitud, usar `statusGroup`; no hay que deducirlo del `status`. Cada pestaña manda su `statusGroup` y muestra su conteo con `/summary`. Hay que volver a pedir el resumen después de crear una solicitud o de decidir.
+**Qué hacer en el front:** usar pestañas (Todas, Por validar, En proceso, Aprobadas y Rechazadas). En las bandejas de las áreas, la primera pestaña conviene llamarla "Por decidir". Para el color de cada solicitud, usar `statusGroup`; no hay que deducirlo del `status`. Cada pestaña manda su `statusGroup` y muestra su conteo con `/summary`. Hay que volver a pedir el resumen después de crear una solicitud o de decidir.
 
 **Errores:** si `statusGroup` trae un valor que no existe, responde 400.
 

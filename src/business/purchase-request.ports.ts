@@ -88,7 +88,7 @@ export interface PurchaseRequestView {
   id: PurchaseRequestID;
   requestNumber: number;
   status: RequestStatus;
-  // Etapa calculada con TODAS las filas, aunque el líder solo reciba las suyas.
+  // Etapa según la bandeja que consulta: "por_validar" es lo que le toca a ese usuario.
   statusGroup: StatusGroup;
   purchaseType: PurchaseType | null;
   justification: string;
@@ -115,7 +115,7 @@ export interface PaginatedPurchaseRequests {
 }
 
 // Etapas que ve el usuario (pestañas). Qué estados entran en cada una lo define
-// la lógica de negocio (STATUS_GROUP_CONDITIONS), no el front.
+// la lógica de negocio por bandeja (INBOX_STAGES en purchase-request.stages.ts), no el front.
 export const STATUS_GROUPS = [
   'por_validar',
   'en_proceso',
@@ -124,11 +124,15 @@ export const STATUS_GROUPS = [
 ] as const;
 export type StatusGroup = (typeof STATUS_GROUPS)[number];
 
-// Cómo se arma un grupo: estados, más (opcional) las solicitudes en SOLICITADO
-// según si algún líder ya decidió alguna fila.
+// Cómo se arma un grupo: estados, más (opcional) las solicitudes en SOLICITADO según
+// si algún líder ya decidió alguna fila, o si a quien consulta le queda una fila suya pendiente.
 export interface StatusGroupCondition {
   statuses: readonly RequestStatus[];
-  solicitado?: 'sin_decisiones' | 'con_decisiones';
+  solicitado?:
+    | 'sin_decisiones'
+    | 'con_decisiones'
+    | 'fila_propia_pendiente'
+    | 'sin_fila_propia_pendiente';
 }
 
 // Filtros que manda el front. Solo reducen lo que la bandeja ya permite ver.
@@ -145,6 +149,8 @@ export interface InboxFilters {
 export interface ListInboxRepoQuery extends Omit<InboxFilters, 'statusGroup'> {
   viewerId: string;
   visibility: InboxVisibility;
+  // Etapas de la bandeja: para calcular statusGroup de cada solicitud.
+  stages: Record<StatusGroup, StatusGroupCondition>;
   statusGroup?: StatusGroupCondition;
 }
 
@@ -164,6 +170,7 @@ export interface FindInboxItemRepoQuery {
   id: PurchaseRequestID;
   viewerId: string;
   visibility: InboxVisibility;
+  stages: Record<StatusGroup, StatusGroupCondition>;
 }
 
 // ==========================================

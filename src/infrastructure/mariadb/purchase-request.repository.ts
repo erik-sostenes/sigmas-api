@@ -37,7 +37,6 @@ import {
   PurchaseRequestNotCreatedError,
   PurchaseRequesterNotFoundError,
 } from '../../business/purchase-request.errors';
-import { statusGroupOf } from '../../business/purchase-request.stages';
 import {
   foreignKeyColumn,
   foreignKeyConstraint,
@@ -89,7 +88,7 @@ type DatabaseInboxRow = {
   requester_email: string;
   department_id: number;
   department_name: string;
-  has_leader_decisions: number | boolean;
+  status_group: StatusGroup;
   isos: unknown;
   components: unknown;
   product_items: unknown;
@@ -209,12 +208,17 @@ export class PurchaseRequestRepository
     const total = Number(countRows[0]?.total ?? 0);
     const totalPages = total === 0 ? 0 : Math.ceil(total / query.limit);
 
+    const select = this.buildViewSelectSql(
+      visibility.componentsFilter,
+      query.stages,
+      query.viewerId,
+    );
     const rows = (await this.execute(
-      `${this.buildViewSelectSql(visibility.componentsFilter)}
+      `${select.sql}
        WHERE ${whereSql}
        ORDER BY pr.request_number DESC
        LIMIT ? OFFSET ?`,
-      [query.viewerId, ...params, query.limit, offset],
+      [...select.params, ...params, query.limit, offset],
     )) as DatabaseInboxRow[];
 
     return {
@@ -233,11 +237,16 @@ export class PurchaseRequestRepository
   ): Promise<PurchaseRequestView | null> {
     const visibility = this.buildVisibilitySql(query.visibility);
 
+    const select = this.buildViewSelectSql(
+      visibility.componentsFilter,
+      query.stages,
+      query.viewerId,
+    );
     const rows = (await this.execute(
-      `${this.buildViewSelectSql(visibility.componentsFilter)}
+      `${select.sql}
        WHERE pr.id = ? AND ${visibility.where}
        LIMIT 1`,
-      [query.viewerId, query.id, ...visibility.params],
+      [...select.params, query.id, ...visibility.params],
     )) as DatabaseInboxRow[];
 
     const row = rows[0];
@@ -335,7 +344,7 @@ export class PurchaseRequestRepository
   // ==========================================
 
   // Condición booleana sobre pr para una etapa (pestaña): sus estados, más SOLICITADO
-  // con o sin alguna fila ya decidida por su líder.
+  // según si algún líder ya decidió, o si a quien consulta (me.uid) le queda una fila pendiente.
   private buildStatusGroupSql(group: StatusGroupCondition): {
     sql: string;
     params: unknown[];
@@ -349,13 +358,22 @@ export class PurchaseRequestRepository
     }
 
     if (group.solicitado) {
-      const decided = `EXISTS (
+      const anyDecided = `EXISTS (
         SELECT 1 FROM request_components drc
         WHERE drc.purchase_request_id = pr.id AND drc.leader_status <> 'PENDIENTE'
       )`;
-      parts.push(
-        `(pr.status = 'SOLICITADO' AND ${group.solicitado === 'con_decisiones' ? decided : `NOT ${decided}`})`,
-      );
+      const ownPending = `EXISTS (
+        SELECT 1 FROM request_components orc
+        WHERE orc.purchase_request_id = pr.id
+          AND orc.leader_id = me.uid AND orc.leader_status = 'PENDIENTE'
+      )`;
+      const condition = {
+        sin_decisiones: `NOT ${anyDecided}`,
+        con_decisiones: anyDecided,
+        fila_propia_pendiente: ownPending,
+        sin_fila_propia_pendiente: `NOT ${ownPending}`,
+      }[group.solicitado];
+      parts.push(`(pr.status = 'SOLICITADO' AND ${condition})`);
     }
 
     return { sql: `(${parts.join(' OR ') || '1 = 0'})`, params };
@@ -394,9 +412,27 @@ export class PurchaseRequestRepository
     }
   }
 
-  // El primer parámetro siempre es el id del usuario (me.uid).
-  private buildViewSelectSql(componentsFilter: string): string {
-    return `SELECT pr.id, pr.request_number, pr.status, pr.purchase_type,
+  // statusGroup se calcula con las etapas de la bandeja (CASE en el orden de las etapas).
+  // `params` ya trae, en orden, los del CASE y el de me.uid (FROM): van antes que los del WHERE.
+  private buildViewSelectSql(
+    componentsFilter: string,
+    stages: Record<StatusGroup, StatusGroupCondition>,
+    viewerId: string,
+  ): { sql: string; params: unknown[] } {
+    const whens: string[] = [];
+    const params: unknown[] = [];
+    for (const [name, condition] of Object.entries(stages) as [
+      StatusGroup,
+      StatusGroupCondition,
+    ][]) {
+      const group = this.buildStatusGroupSql(condition);
+      whens.push(`WHEN ${group.sql} THEN '${name}'`);
+      params.push(...group.params);
+    }
+
+    return {
+      params: [...params, viewerId],
+      sql: `SELECT pr.id, pr.request_number, pr.status, pr.purchase_type,
               pr.justification, pr.total_amount_estimated, pr.total_amount_final,
               pr.created_at, pr.updated_at,
          u.id AS requester_id,
@@ -406,10 +442,7 @@ export class PurchaseRequestRepository
          u.email AS requester_email,
          d.id AS department_id,
          d.name AS department_name,
-         -- Sobre todas las filas, no solo las visibles: define la etapa (statusGroup).
-         EXISTS (SELECT 1 FROM request_components xrc
-                 WHERE xrc.purchase_request_id = pr.id
-                   AND xrc.leader_status <> 'PENDIENTE') AS has_leader_decisions,
+         CASE ${whens.join(' ')} ELSE 'en_proceso' END AS status_group,
          (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', i.id, 'name', i.name) ORDER BY i.id)
           FROM purchase_request_isos pri
           INNER JOIN isos i ON i.id = pri.iso_id
@@ -471,7 +504,8 @@ export class PurchaseRequestRepository
        FROM purchase_requests pr
        INNER JOIN users u ON u.id = pr.requested_by
        INNER JOIN departments d ON d.id = u.department_id
-       CROSS JOIN (SELECT ? AS uid) me`;
+       CROSS JOIN (SELECT ? AS uid) me`,
+    };
   }
 
   private mapRowToView(row: DatabaseInboxRow): PurchaseRequestView {
@@ -479,7 +513,7 @@ export class PurchaseRequestRepository
       id: row.id,
       requestNumber: Number(row.request_number),
       status: row.status,
-      statusGroup: statusGroupOf(row.status, Boolean(row.has_leader_decisions)),
+      statusGroup: row.status_group,
       purchaseType: row.purchase_type ?? null,
       justification: row.justification,
       totalAmountEstimated: Number(row.total_amount_estimated),
