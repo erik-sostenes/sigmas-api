@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ActivityItem } from '../../business/activity.model';
-import type { ActivityRepositoryI } from '../../business/activity.ports';
+import type {
+  ActivityFilters,
+  ActivityRepositoryI,
+} from '../../business/activity.ports';
 import { MariaDBRepository, type Row } from './mariadb.repository';
 
 type DatabaseActivityRow = {
@@ -15,11 +18,12 @@ export class ActivityRepository
   extends MariaDBRepository<ActivityItem>
   implements ActivityRepositoryI
 {
-  async findAll(): Promise<ActivityItem[]> {
+  async findAll(filters?: ActivityFilters): Promise<ActivityItem[]> {
     return await this.searchMany(
-      `SELECT id, component_id, code, name
-         FROM activities
-        ORDER BY code ASC`,
+      `SELECT a.id, a.component_id, a.code, a.name
+         FROM activities a
+        WHERE 1 = 1 ${this.leaderCondition(filters)}
+        ORDER BY a.code ASC`,
     );
   }
 
@@ -34,14 +38,28 @@ export class ActivityRepository
     );
   }
 
-  async findByComponentId(componentId: number): Promise<ActivityItem[]> {
+  async findByComponentId(
+    componentId: number,
+    filters?: ActivityFilters,
+  ): Promise<ActivityItem[]> {
     return await this.searchMany(
-      `SELECT id, component_id, code, name
-         FROM activities
-        WHERE component_id = ?
-        ORDER BY code ASC`,
+      `SELECT a.id, a.component_id, a.code, a.name
+         FROM activities a
+        WHERE a.component_id = ? ${this.leaderCondition(filters)}
+        ORDER BY a.code ASC`,
       [componentId],
     );
+  }
+
+  // Misma condición que usa la creación de solicitudes para fijar el líder de cada fila.
+  private leaderCondition(filters?: ActivityFilters): string {
+    if (!filters?.withActiveLeader) return '';
+    return `AND EXISTS (
+      SELECT 1
+      FROM user_activities ua
+      INNER JOIN users u ON u.id = ua.user_id AND u.is_active = TRUE
+      WHERE ua.activity_id = a.id
+    )`;
   }
 
   protected toDomain(row: DatabaseActivityRow): ActivityItem {
