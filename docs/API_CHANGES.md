@@ -407,3 +407,11 @@ Son dos bugs de `user.mariadb.repository.ts`. Ninguno cambia contratos, pero con
 2. **Los errores de base de datos no se traducían.**
    - Un usuario duplicado, un departamento inexistente o un componente inexistente respondían **500 genérico** en lugar de su error específico.
    - En el webhook de Clerk eso hacía que un evento repetido respondiera 500, y Clerk lo reintentaba. Ahora responde 200, que es lo esperado: el evento se procesa una sola vez.
+
+## ✅ Invitaciones: no se puede invitar con el rol `super_admin`
+
+`POST /api/v1/invitations`
+
+- **Qué cambió:** si `roleIds` incluye el rol `super_admin`, el backend responde **400 `InvitationRoleNotAllowedError`**.
+- **Por qué:** el super admin no se crea desde la app. Antes se podía invitar a alguien con ese rol.
+- **Qué hacer en el front:** no ofrecer ese rol en el formulario de invitación. Ya está hecho en `feat/purchase-requests-bandejas`.
