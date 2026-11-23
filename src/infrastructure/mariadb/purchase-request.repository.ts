@@ -10,15 +10,14 @@ import type {
   RequestComponent,
 } from '../../business/request-component.model';
 import type {
-  FindPurchaseRequestDetailRepoQuery,
-  ListPurchaseRequestsRepoQuery,
+  FindInboxItemRepoQuery,
+  InboxVisibility,
+  ListInboxRepoQuery,
   PaginatedPurchaseRequests,
   PurchaseRequestComponentView,
-  PurchaseRequestListItem,
   PurchaseRequestProductItemView,
   PurchaseRequestRepositoryI,
-  PurchaseRequestScope,
-  PurchaseRequestViewer,
+  PurchaseRequestView,
 } from '../../business/purchase-request.ports';
 import {
   ActivityNotInComponentError,
@@ -53,15 +52,34 @@ type DatabasePurchaseRequestRow = {
   updated_at: Date;
 };
 
-type DatabasePurchaseRequestListRow = DatabasePurchaseRequestRow & {
+type DatabaseInboxRow = {
+  id: string;
+  request_number: number;
+  status: RequestStatus;
+  purchase_type: PurchaseType | null;
+  justification: string;
+  total_amount_estimated: string | number;
+  total_amount_final: string | number;
+  created_at: Date;
+  updated_at: Date;
+  requester_id: string;
   requester_title: string | null;
   requester_first_name: string;
   requester_last_name: string;
   requester_email: string;
+  department_id: number;
   department_name: string;
-  is_requester: number | boolean;
+  isos: unknown;
   components: unknown;
   product_items: unknown;
+};
+
+type VisibilitySql = {
+  // Condición del WHERE sobre pr (puede usar me.uid)
+  where: string;
+  params: unknown[];
+  // Condición extra sobre rc para las filas que se regresan
+  componentsFilter: string;
 };
 
 @Injectable()
@@ -91,97 +109,51 @@ export class PurchaseRequestRepository
     });
   }
 
-  async findViewerByClerkId(
-    clerkId: string,
-  ): Promise<PurchaseRequestViewer | null> {
-    const rows = await this.execute(
-      `SELECT u.id AS user_id,
-         (SELECT JSON_ARRAYAGG(r.code)
-          FROM user_roles ur
-          INNER JOIN roles r ON r.id = ur.role_id
-          WHERE ur.user_id = u.id) AS role_codes
-       FROM users u
-       WHERE u.clerk_id = ? AND u.is_active = TRUE
-       LIMIT 1`,
-      [clerkId],
-    );
-
-    const row = rows[0];
-    if (!row) return null;
-
-    return {
-      userId: String(row.user_id),
-      roleCodes: this.parseStringArray(row.role_codes),
-    };
-  }
-
-  async existsById(id: PurchaseRequestID): Promise<boolean> {
-    const rows = await this.execute(
-      `SELECT 1 FROM purchase_requests WHERE id = ? LIMIT 1`,
-      [id],
-    );
-    return rows.length > 0;
-  }
-
-  async findDetailById(
-    query: FindPurchaseRequestDetailRepoQuery,
-  ): Promise<PurchaseRequestListItem | null> {
-    const { whereScope, componentsFilter } = this.buildScopeFilter(query.scope);
-
-    const rows = (await this.execute(
-      `${this.buildDetailSelectSql(componentsFilter)}
-       WHERE pr.id = ?
-         AND ${whereScope}
-       LIMIT 1`,
-      [query.userId, query.id],
-    )) as DatabasePurchaseRequestListRow[];
-
-    const row = rows[0];
-    return row ? this.mapRowToListItem(row) : null;
-  }
-
-  async listPaginated(
-    query: ListPurchaseRequestsRepoQuery,
+  async listInbox(
+    query: ListInboxRepoQuery,
   ): Promise<PaginatedPurchaseRequests> {
     const offset = (query.page - 1) * query.limit;
-    const { whereScope, componentsFilter } = this.buildScopeFilter(query.scope);
+    const visibility = this.buildVisibilitySql(
+      query.visibility,
+      query.leaderStatus,
+    );
 
-    const extraConditions: string[] = [];
-    const baseParams: unknown[] = [query.userId];
+    const conditions = [visibility.where];
+    const params: unknown[] = [...visibility.params];
 
     if (query.status) {
-      extraConditions.push('AND pr.status = ?');
-      baseParams.push(query.status);
+      conditions.push('pr.status = ?');
+      params.push(query.status);
     }
 
     if (query.search) {
-      extraConditions.push('AND CAST(pr.request_number AS CHAR) LIKE ?');
-      baseParams.push(`%${query.search}%`);
+      conditions.push('CAST(pr.request_number AS CHAR) LIKE ?');
+      params.push(`%${query.search}%`);
     }
 
-    const extraSql = extraConditions.join(' ');
+    const whereSql = conditions.join(' AND ');
 
     const countRows = await this.execute(
       `SELECT COUNT(*) AS total
        FROM purchase_requests pr
        CROSS JOIN (SELECT ? AS uid) me
-       WHERE ${whereScope} ${extraSql}`,
-      baseParams,
+       WHERE ${whereSql}`,
+      [query.viewerId, ...params],
     );
 
     const total = Number(countRows[0]?.total ?? 0);
     const totalPages = total === 0 ? 0 : Math.ceil(total / query.limit);
 
     const rows = (await this.execute(
-      `${this.buildDetailSelectSql(componentsFilter)}
-       WHERE ${whereScope} ${extraSql}
+      `${this.buildViewSelectSql(visibility.componentsFilter)}
+       WHERE ${whereSql}
        ORDER BY pr.request_number DESC
        LIMIT ? OFFSET ?`,
-      [...baseParams, query.limit, offset],
-    )) as DatabasePurchaseRequestListRow[];
+      [query.viewerId, ...params, query.limit, offset],
+    )) as DatabaseInboxRow[];
 
     return {
-      data: rows.map((row) => this.mapRowToListItem(row)),
+      data: rows.map((row) => this.mapRowToView(row)),
       meta: {
         page: query.page,
         limit: query.limit,
@@ -189,6 +161,22 @@ export class PurchaseRequestRepository
         totalPages,
       },
     };
+  }
+
+  async findInboxItem(
+    query: FindInboxItemRepoQuery,
+  ): Promise<PurchaseRequestView | null> {
+    const visibility = this.buildVisibilitySql(query.visibility);
+
+    const rows = (await this.execute(
+      `${this.buildViewSelectSql(visibility.componentsFilter)}
+       WHERE pr.id = ? AND ${visibility.where}
+       LIMIT 1`,
+      [query.viewerId, query.id, ...visibility.params],
+    )) as DatabaseInboxRow[];
+
+    const row = rows[0];
+    return row ? this.mapRowToView(row) : null;
   }
 
   async search(id: PurchaseRequestID): Promise<PurchaseRequest | null> {
@@ -219,92 +207,89 @@ export class PurchaseRequestRepository
   // Query Builders
   // ==========================================
 
-  private buildScopeFilter(scope?: PurchaseRequestScope): {
-    whereScope: string;
-    componentsFilter: string;
-  } {
-    // ACTIVO (Primera entrega): Filtros por vista activa y visibilidad por rol.
-    // FUTURO (Fase 2 - Aprobación multi-líder): Agregar aquí filtro opcional por rc.leader_status (ej. PENDIENTE).
-    // FUTURO (Escalabilidad): Si purchase_requests crece a miles de filas, reescribir el scope combinado (default) con UNION en lugar de OR EXISTS.
-    switch (scope) {
-      case 'all':
-        return {
-          whereScope: '1 = 1',
-          componentsFilter: '',
-        };
+  private buildVisibilitySql(
+    visibility: InboxVisibility,
+    leaderStatus?: ComponentLeaderStatus,
+  ): VisibilitySql {
+    switch (visibility.kind) {
       case 'requester':
         return {
-          whereScope: 'pr.requested_by = me.uid',
+          where: 'pr.requested_by = me.uid',
+          params: [],
           componentsFilter: '',
         };
       case 'leader':
+        // El líder solo recibe sus filas: no ve cuánto se le pide a los demás.
         return {
-          whereScope: `EXISTS (
+          where: `EXISTS (
             SELECT 1
-            FROM request_components rc
-            INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
-            WHERE rc.purchase_request_id = pr.id
-              AND ua.user_id = me.uid
+            FROM request_components lrc
+            WHERE lrc.purchase_request_id = pr.id
+              AND lrc.leader_id = me.uid
+              ${leaderStatus ? 'AND lrc.leader_status = ?' : ''}
           )`,
-          componentsFilter: `AND EXISTS (
-            SELECT 1
-            FROM user_activities ua
-            WHERE ua.activity_id = rc.activity_id
-              AND ua.user_id = me.uid
-          )`,
+          params: leaderStatus ? [leaderStatus] : [],
+          componentsFilter: 'AND rc.leader_id = me.uid',
         };
-      default:
+      case 'statuses':
         return {
-          whereScope: `(pr.requested_by = me.uid OR EXISTS (
-            SELECT 1
-            FROM request_components rc
-            INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
-            WHERE rc.purchase_request_id = pr.id
-              AND ua.user_id = me.uid
-          ))`,
-          componentsFilter: `AND (pr.requested_by = me.uid OR EXISTS (
-            SELECT 1
-            FROM user_activities ua
-            WHERE ua.activity_id = rc.activity_id
-              AND ua.user_id = me.uid
-          ))`,
+          where: `pr.status IN (${this.placeholders([...visibility.statuses])})`,
+          params: [...visibility.statuses],
+          componentsFilter: '',
         };
     }
   }
 
-  private buildDetailSelectSql(componentsFilter: string): string {
-    return `SELECT pr.id, pr.request_number, pr.requested_by, pr.status, pr.purchase_type,
+  // El primer parámetro siempre es el id del usuario (me.uid).
+  private buildViewSelectSql(componentsFilter: string): string {
+    return `SELECT pr.id, pr.request_number, pr.status, pr.purchase_type,
               pr.justification, pr.total_amount_estimated, pr.total_amount_final,
               pr.created_at, pr.updated_at,
+         u.id AS requester_id,
          u.title AS requester_title,
          u.first_name AS requester_first_name,
          u.last_name AS requester_last_name,
          u.email AS requester_email,
+         d.id AS department_id,
          d.name AS department_name,
-         (pr.requested_by = me.uid) AS is_requester,
-         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
+         (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', i.id, 'name', i.name) ORDER BY i.id)
           FROM purchase_request_isos pri
-          WHERE pri.purchase_request_id = pr.id) AS iso_ids,
+          INNER JOIN isos i ON i.id = pri.iso_id
+          WHERE pri.purchase_request_id = pr.id) AS isos,
          (SELECT JSON_ARRAYAGG(JSON_OBJECT(
                    'id', rc.id,
-                   'componentId', rc.component_id,
-                   'activityId', rc.activity_id,
-                   'fundingSourceId', rc.funding_source_id,
+                   'componentId', c.id, 'componentCode', c.code, 'componentName', c.name,
+                   'activityId', a.id, 'activityCode', a.code, 'activityName', a.name,
+                   'administrativeUnitId', au.id, 'administrativeUnitCode', au.code,
+                   'administrativeUnitName', au.name,
+                   'fundingSourceId', fs.id, 'fundingSourceCode', fs.code,
+                   'fundingSourceName', fs.name,
                    'estimatedAmount', rc.estimated_amount,
                    'finalAmount', rc.final_amount,
-                   'leaderStatus', rc.leader_status))
+                   'leaderId', lu.id, 'leaderTitle', lu.title,
+                   'leaderFirstName', lu.first_name, 'leaderLastName', lu.last_name,
+                   'leaderStatus', rc.leader_status,
+                   'leaderDecidedAt', rc.leader_decided_at)
+                 ORDER BY c.code, a.code, fs.code)
           FROM request_components rc
+          INNER JOIN components c ON c.id = rc.component_id
+          INNER JOIN activities a ON a.id = rc.activity_id
+          INNER JOIN administrative_units au ON au.id = c.administrative_unit_id
+          INNER JOIN funding_sources fs ON fs.id = rc.funding_source_id
+          INNER JOIN users lu ON lu.id = rc.leader_id
           WHERE rc.purchase_request_id = pr.id
             ${componentsFilter}) AS components,
          (SELECT JSON_ARRAYAGG(JSON_OBJECT(
                    'id', pi.id,
-                   'budgetItemId', pi.budget_item_id,
-                   'measurementUnitId', pi.measurement_unit_id,
+                   'budgetItemId', bi.id, 'budgetItemCode', bi.code, 'budgetItemName', bi.name,
+                   'measurementUnitId', mu.id, 'measurementUnitName', mu.name,
                    'quantity', pi.quantity,
                    'description', pi.description,
                    'estimatedAmount', pi.estimated_amount,
                    'finalAmount', pi.final_amount))
           FROM product_items pi
+          INNER JOIN budget_items bi ON bi.id = pi.budget_item_id
+          INNER JOIN measurement_units mu ON mu.id = pi.measurement_unit_id
           WHERE pi.purchase_request_id = pr.id) AS product_items
        FROM purchase_requests pr
        INNER JOIN users u ON u.id = pr.requested_by
@@ -312,30 +297,32 @@ export class PurchaseRequestRepository
        CROSS JOIN (SELECT ? AS uid) me`;
   }
 
-  private mapRowToListItem(
-    row: DatabasePurchaseRequestListRow,
-  ): PurchaseRequestListItem {
+  private mapRowToView(row: DatabaseInboxRow): PurchaseRequestView {
     return {
       id: row.id,
       requestNumber: Number(row.request_number),
-      requestedBy: row.requested_by,
-      requester: {
-        id: row.requested_by,
-        title: row.requester_title ?? null,
-        firstName: row.requester_first_name,
-        lastName: row.requester_last_name,
-        email: row.requester_email,
-        departmentName: row.department_name,
-      },
       status: row.status,
       purchaseType: row.purchase_type ?? null,
       justification: row.justification,
       totalAmountEstimated: Number(row.total_amount_estimated),
       totalAmountFinal: Number(row.total_amount_final),
-      isoIds: this.parseIds(row.iso_ids),
+      requester: {
+        id: row.requester_id,
+        title: row.requester_title ?? null,
+        firstName: row.requester_first_name,
+        lastName: row.requester_last_name,
+        email: row.requester_email,
+        department: {
+          id: Number(row.department_id),
+          name: row.department_name,
+        },
+      },
+      isos: this.parseJsonArray(row.isos).map((item) => {
+        const i = item as Record<string, unknown>;
+        return { id: Number(i.id), name: String(i.name) };
+      }),
       components: this.parseComponents(row.components),
       productItems: this.parseProductItems(row.product_items),
-      isRequester: Boolean(row.is_requester),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -535,8 +522,10 @@ export class PurchaseRequestRepository
     return this.parseJsonArray(value).map(Number);
   }
 
-  private parseStringArray(value: unknown): string[] {
-    return this.parseJsonArray(value).map(String);
+  // Dentro de JSON_OBJECT las fechas llegan como 'YYYY-MM-DD HH:MM:SS' (hora local, igual que el driver).
+  private parseJsonDate(value: unknown): Date | null {
+    if (typeof value !== 'string') return null;
+    return new Date(value.replace(' ', 'T'));
   }
 
   private parseComponents(value: unknown): PurchaseRequestComponentView[] {
@@ -544,12 +533,36 @@ export class PurchaseRequestRepository
       const c = item as Record<string, unknown>;
       return {
         id: String(c.id),
-        componentId: Number(c.componentId),
-        activityId: Number(c.activityId),
-        fundingSourceId: Number(c.fundingSourceId),
+        component: {
+          id: Number(c.componentId),
+          code: String(c.componentCode),
+          name: String(c.componentName),
+        },
+        activity: {
+          id: Number(c.activityId),
+          code: String(c.activityCode),
+          name: String(c.activityName),
+        },
+        administrativeUnit: {
+          id: Number(c.administrativeUnitId),
+          code: String(c.administrativeUnitCode),
+          name: String(c.administrativeUnitName),
+        },
+        fundingSource: {
+          id: Number(c.fundingSourceId),
+          code: String(c.fundingSourceCode),
+          name: String(c.fundingSourceName),
+        },
         estimatedAmount: Number(c.estimatedAmount),
         finalAmount: Number(c.finalAmount),
+        leader: {
+          id: String(c.leaderId),
+          title: typeof c.leaderTitle === 'string' ? c.leaderTitle : null,
+          firstName: String(c.leaderFirstName),
+          lastName: String(c.leaderLastName),
+        },
         leaderStatus: c.leaderStatus as ComponentLeaderStatus,
+        leaderDecidedAt: this.parseJsonDate(c.leaderDecidedAt),
       };
     });
   }
@@ -559,8 +572,15 @@ export class PurchaseRequestRepository
       const p = item as Record<string, unknown>;
       return {
         id: String(p.id),
-        budgetItemId: Number(p.budgetItemId),
-        measurementUnitId: Number(p.measurementUnitId),
+        budgetItem: {
+          id: Number(p.budgetItemId),
+          code: String(p.budgetItemCode),
+          name: String(p.budgetItemName),
+        },
+        measurementUnit: {
+          id: Number(p.measurementUnitId),
+          name: String(p.measurementUnitName),
+        },
         quantity: Number(p.quantity),
         description: String(p.description),
         estimatedAmount: Number(p.estimatedAmount),

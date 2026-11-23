@@ -6,8 +6,27 @@ import {
 } from './purchase-request.model';
 import type { ComponentLeaderStatus } from './request-component.model';
 
-export const PURCHASE_REQUEST_SCOPES = ['requester', 'leader', 'all'] as const;
-export type PurchaseRequestScope = (typeof PURCHASE_REQUEST_SCOPES)[number];
+// ==========================================
+// Bandejas: una por sección del front (docs/BUSINESS_RULES.md, sección 6)
+// ==========================================
+
+export const INBOXES = ['mine', 'leader', 'sufficiency', 'resources'] as const;
+export type Inbox = (typeof INBOXES)[number];
+
+// Qué solicitudes entran a una bandeja. El repositorio solo traduce esto a SQL.
+// - requester: las que creó el usuario
+// - leader: las que tienen al menos una fila suya; solo se regresan sus filas
+// - statuses: todas las que están en esos estados (áreas que ven todo)
+export type InboxVisibility =
+  | { kind: 'requester' }
+  | { kind: 'leader' }
+  | { kind: 'statuses'; statuses: readonly RequestStatus[] };
+
+export interface CatalogRef {
+  id: number;
+  code: string;
+  name: string;
+}
 
 export interface PurchaseRequestRequesterView {
   id: string;
@@ -15,49 +34,57 @@ export interface PurchaseRequestRequesterView {
   firstName: string;
   lastName: string;
   email: string;
-  departmentName: string;
+  department: { id: number; name: string };
+}
+
+export interface PurchaseRequestLeaderView {
+  id: string;
+  title: string | null;
+  firstName: string;
+  lastName: string;
 }
 
 export interface PurchaseRequestComponentView {
   id: string;
-  componentId: number;
-  activityId: number;
-  fundingSourceId: number;
+  component: CatalogRef;
+  activity: CatalogRef;
+  administrativeUnit: CatalogRef;
+  fundingSource: CatalogRef;
   estimatedAmount: number;
   finalAmount: number;
+  leader: PurchaseRequestLeaderView;
   leaderStatus: ComponentLeaderStatus;
+  leaderDecidedAt: Date | null;
 }
 
 export interface PurchaseRequestProductItemView {
   id: string;
-  budgetItemId: number;
-  measurementUnitId: number;
+  budgetItem: CatalogRef;
+  measurementUnit: { id: number; name: string };
   quantity: number;
   description: string;
   estimatedAmount: number;
   finalAmount: number;
 }
 
-export interface PurchaseRequestListItem {
+export interface PurchaseRequestView {
   id: PurchaseRequestID;
   requestNumber: number;
-  requestedBy: string;
-  requester: PurchaseRequestRequesterView;
   status: RequestStatus;
   purchaseType: PurchaseType | null;
   justification: string;
   totalAmountEstimated: number;
   totalAmountFinal: number;
-  isoIds: number[];
+  requester: PurchaseRequestRequesterView;
+  isos: { id: number; name: string }[];
   components: PurchaseRequestComponentView[];
   productItems: PurchaseRequestProductItemView[];
-  isRequester: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface PaginatedPurchaseRequests {
-  data: PurchaseRequestListItem[];
+  data: PurchaseRequestView[];
   meta: {
     page: number;
     limit: number;
@@ -66,14 +93,25 @@ export interface PaginatedPurchaseRequests {
   };
 }
 
-export interface ListPurchaseRequestsInput {
-  clerkId: string;
-  clerkMetadataRole?: string;
-  scope?: PurchaseRequestScope;
+// Filtros que manda el front. Solo reducen lo que la bandeja ya permite ver.
+export interface InboxFilters {
   status?: RequestStatus;
   search?: string;
+  // Solo bandeja del líder: estado de sus filas
+  leaderStatus?: ComponentLeaderStatus;
   page: number;
   limit: number;
+}
+
+export interface ListInboxRepoQuery extends InboxFilters {
+  viewerId: string;
+  visibility: InboxVisibility;
+}
+
+export interface FindInboxItemRepoQuery {
+  id: PurchaseRequestID;
+  viewerId: string;
+  visibility: InboxVisibility;
 }
 
 export interface DecideRequestComponentInput {
@@ -84,55 +122,28 @@ export interface DecideRequestComponentInput {
   justification?: string;
 }
 
-export interface GetPurchaseRequestByIdInput {
-  id: PurchaseRequestID;
-  clerkId: string;
-  clerkMetadataRole?: string;
-  scope?: PurchaseRequestScope;
-}
-
-export interface PurchaseRequestViewer {
-  userId: string;
-  roleCodes: string[];
-}
-
-export interface ListPurchaseRequestsRepoQuery {
-  userId: string;
-  scope?: PurchaseRequestScope;
-  status?: RequestStatus;
-  search?: string;
-  page: number;
-  limit: number;
-}
-
-export interface FindPurchaseRequestDetailRepoQuery {
-  id: PurchaseRequestID;
-  userId: string;
-  scope?: PurchaseRequestScope;
-}
-
 // left ports
 export abstract class PurchaseRequestLogicI {
   abstract create(request: PurchaseRequest): Promise<PurchaseRequestID>;
-  abstract list(
-    input: ListPurchaseRequestsInput,
+  abstract listInbox(
+    inbox: Inbox,
+    viewerId: string,
+    filters: InboxFilters,
   ): Promise<PaginatedPurchaseRequests>;
-  abstract getById(
-    input: GetPurchaseRequestByIdInput,
-  ): Promise<PurchaseRequestListItem>;
+  abstract getInboxItem(
+    inbox: Inbox,
+    viewerId: string,
+    id: PurchaseRequestID,
+  ): Promise<PurchaseRequestView>;
 }
 
 // right ports
 export abstract class PurchaseRequestRepositoryI {
   abstract save(request: PurchaseRequest): Promise<PurchaseRequestID>;
-  abstract findViewerByClerkId(
-    clerkId: string,
-  ): Promise<PurchaseRequestViewer | null>;
-  abstract listPaginated(
-    query: ListPurchaseRequestsRepoQuery,
+  abstract listInbox(
+    query: ListInboxRepoQuery,
   ): Promise<PaginatedPurchaseRequests>;
-  abstract existsById(id: PurchaseRequestID): Promise<boolean>;
-  abstract findDetailById(
-    query: FindPurchaseRequestDetailRepoQuery,
-  ): Promise<PurchaseRequestListItem | null>;
+  abstract findInboxItem(
+    query: FindInboxItemRepoQuery,
+  ): Promise<PurchaseRequestView | null>;
 }

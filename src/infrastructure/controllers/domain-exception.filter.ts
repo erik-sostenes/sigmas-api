@@ -13,7 +13,6 @@ import {
   LeaderRowAlreadyDecidedError,
   ProductItemNotFoundError,
   ProductReferenceNotFoundError,
-  PurchaseRequestAccessDeniedError,
   PurchaseRequestDomainError,
   PurchaseRequesterNotFoundError,
   PurchaseRequestIsosNotFoundError,
@@ -49,10 +48,6 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
       error instanceof RequestNotAwaitingLeadersError
     ) {
       return HttpStatus.CONFLICT;
-    }
-
-    if (error instanceof PurchaseRequestAccessDeniedError) {
-      return HttpStatus.FORBIDDEN;
     }
 
     if (

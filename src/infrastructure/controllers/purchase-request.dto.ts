@@ -20,9 +20,9 @@ import {
   type RequestStatus,
 } from '../../business/purchase-request.model';
 import {
-  PURCHASE_REQUEST_SCOPES,
-  type PurchaseRequestScope,
-} from '../../business/purchase-request.ports';
+  COMPONENT_LEADER_STATUSES,
+  type ComponentLeaderStatus,
+} from '../../business/request-component.model';
 
 export class CreateRequestComponentDto {
   @IsInt({
@@ -113,21 +113,8 @@ export class CreatePurchaseRequestDto {
   productItems: CreateProductItemDto[];
 }
 
-export class GetPurchaseRequestByIdQueryDto {
-  @IsOptional()
-  @IsIn(PURCHASE_REQUEST_SCOPES, {
-    message: 'scope debe ser uno de: requester, leader, all.',
-  })
-  scope?: PurchaseRequestScope;
-}
-
-export class ListPurchaseRequestsQueryDto {
-  @IsOptional()
-  @IsIn(PURCHASE_REQUEST_SCOPES, {
-    message: 'scope debe ser uno de: requester, leader, all.',
-  })
-  scope?: PurchaseRequestScope;
-
+// Filtros de las bandejas. Solo reducen lo que la bandeja ya permite ver.
+export class InboxQueryDto {
   @IsOptional()
   @IsIn(REQUEST_STATUSES, {
     message: 'status no es un estatus válido.',
@@ -151,4 +138,13 @@ export class ListPurchaseRequestsQueryDto {
   @Min(1, { message: 'limit debe ser al menos 1.' })
   @Max(100, { message: 'limit no puede ser mayor a 100.' })
   limit?: number = 10;
+}
+
+export class LeaderInboxQueryDto extends InboxQueryDto {
+  // Estado de las filas del líder. Con status=SOLICITADO da sus pendientes por decidir.
+  @IsOptional()
+  @IsIn(COMPONENT_LEADER_STATUSES, {
+    message: 'leaderStatus debe ser uno de: PENDIENTE, APROBADO, RECHAZADO.',
+  })
+  leaderStatus?: ComponentLeaderStatus;
 }

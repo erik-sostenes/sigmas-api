@@ -13,9 +13,8 @@ Bitácora de los cambios de contrato que el frontend tiene que conocer. Cada ent
 | Endpoint | Estado | Cambio |
 |---|---|---|
 | `POST /api/v1/purchase-requests` | ✅ | El body ya **no lleva `requestedBy`**. Solo puede crear quien tiene el rol `solicitante`. Errores nuevos |
-| `GET /api/v1/purchase-requests` y `/:id` | ✅ | Cada componente trae `leaderStatus` |
-| `GET /api/v1/purchase-requests` y `/:id` | 🔜 | **Se eliminan.** Se reemplazan por una ruta por sección |
-| `GET /api/v1/purchase-requests/{mine,leader,sufficiency,resources}` | 🔜 | Rutas nuevas, una por sección |
+| `GET /api/v1/purchase-requests` y `/:id` | ✅ | **Eliminados.** También se fueron `scope` e `isRequester` |
+| `GET /api/v1/purchase-requests/{mine,leader,sufficiency,resources}` y `/:id` | ✅ | Rutas nuevas, una por sección. La respuesta trae nombres y claves |
 | `POST .../leader/:id/rows/:rowId/decision` | 🔜 | Nuevo. El líder aprueba o rechaza una fila |
 | `POST .../sufficiency/:id/decision` | 🔜 | Nuevo. Suficiencia autoriza o rechaza |
 | Catálogo de estados | ✅ | Se quitó `RECHAZA_RECURSOS` y hay 7 estados nuevos |
@@ -30,7 +29,8 @@ Bitácora de los cambios de contrato que el frontend tiene que conocer. Cada ent
 - **Los roles se validan contra la base de datos**, no contra la metadata del token.
   - El front puede seguir usando la metadata para decidir qué secciones mostrar.
   - Pero si la metadata y la base de datos no coinciden, el backend responde 403. Es deuda técnica conocida: hoy no se sincroniza la metadata cuando el admin cambia roles.
-- **Una sección del front = una ruta del backend = un rol.** No se combinan. Si un usuario tiene dos roles, ve dos secciones. 🔜 Las rutas por sección llegan en la fase 3.
+- **Una sección del front = una ruta del backend = un rol.** No se combinan. Si un usuario tiene dos roles, ve dos secciones.
+- Todas las rutas de `/purchase-requests` exigen que el usuario exista en la base de datos y esté activo. Si no, responden 403.
 
 ### Respuestas de error
 
@@ -93,6 +93,8 @@ Hay otros dos formatos que no vienen de los errores de negocio:
 
 **Qué hacer en el front:** nada obligatorio, es un campo extra. Sirve para mostrar el avance de la aprobación por fila.
 
+> En la fase 3 se eliminaron esas rutas y la forma de `components` cambió. Usa el contrato de la fase 3.
+
 ## ✅ Fase 2: Crear solicitud
 
 `POST /api/v1/purchase-requests`
@@ -147,21 +149,117 @@ Hay otros dos formatos que no vienen de los errores de negocio:
 
 ---
 
-## 🔜 Fase 3: Bandejas, una ruta por sección
+## ✅ Fase 3: Bandejas, una ruta por sección
 
-El contrato es preliminar y se va a actualizar aquí cuando se implemente.
+**Qué cambió**
 
-| Ruta | Rol | Qué solicitudes trae | Qué trae de cada una |
+Se eliminaron `GET /api/v1/purchase-requests` y `GET /api/v1/purchase-requests/:id`, el query param `scope` y el campo `isRequester`. En su lugar hay una ruta por sección:
+
+| Ruta | Rol requerido | Qué solicitudes trae | Qué filas de distribución trae |
 |---|---|---|---|
-| `GET /api/v1/purchase-requests/mine` y `/mine/:id` | `solicitante` | Las que creó el usuario | Todo |
-| `GET /api/v1/purchase-requests/leader` y `/leader/:id` | `lider_actividad` | Las que tienen al menos una fila suya | Cabecera, **solo sus filas** y todos los productos |
-| `GET /api/v1/purchase-requests/sufficiency` y `/sufficiency/:id` | `suficiencia_presupuestal` | Desde `APRUEBA_LIDER` en adelante | Todo |
-| `GET /api/v1/purchase-requests/resources` y `/resources/:id` | `recursos_materiales` | Desde `AUTORIZA_SUFICIENCIA` en adelante | Todo |
+| `GET /api/v1/purchase-requests/mine` | `solicitante` | Las que creó el usuario, en cualquier estado | Todas |
+| `GET /api/v1/purchase-requests/leader` | `lider_actividad` | Las que tienen al menos una fila de la que él es líder, en cualquier estado | **Solo las suyas** |
+| `GET /api/v1/purchase-requests/sufficiency` | `suficiencia_presupuestal` | Desde `APRUEBA_LIDER` en adelante (no ve `SOLICITADO` ni `RECHAZA_LIDER`) | Todas |
+| `GET /api/v1/purchase-requests/resources` | `recursos_materiales` | Desde `AUTORIZA_SUFICIENCIA` en adelante (no ve `RECHAZA_SUFICIENCIA`, pero sí `RECHAZA_SUFICIENCIA_FINAL`) | Todas |
 
-- Se eliminan `GET /api/v1/purchase-requests` y `/:id`, el query param `scope` y el campo `isRequester`.
-- Filtros: `page`, `limit`, `status` y `search` (por folio). La ruta del líder agrega `leaderStatus=PENDIENTE` para ver lo que le falta decidir.
-- Las respuestas van a traer **nombres y claves** (componente, actividad, unidad administrativa, fuente de financiamiento, partida, unidad de medida, área solicitante), no solo IDs.
-- `/:id` responde **404** si la solicitud no existe o si no es de esa sección. No se distingue entre los dos casos.
+- Cada ruta tiene su detalle: `/mine/:id`, `/leader/:id`, `/sufficiency/:id` y `/resources/:id`.
+- **Los productos siempre vienen completos**, también para el líder.
+
+**Por qué**
+
+- Cada sección del front corresponde a un rol. El backend valida ese rol en la base de datos y filtra por el usuario del token.
+- Con `scope`, el cliente elegía qué ver. Ahora el cliente solo elige la sección, y entrar a una sección exige tener su rol.
+- El líder solo recibe sus filas porque **un líder no puede ver cuánto se le pide a otro**.
+
+**Query params** (todos opcionales; solo reducen lo que la sección ya permite ver)
+
+| Param | Rutas | Descripción |
+|---|---|---|
+| `page` | todas | Por defecto 1 |
+| `limit` | todas | Por defecto 10, máximo 100 |
+| `status` | todas | Estado de la solicitud |
+| `search` | todas | Busca por folio (`requestNumber`). Máximo 20 caracteres |
+| `leaderStatus` | solo `/leader` | `PENDIENTE`, `APROBADO` o `RECHAZADO`: estado **de las filas del líder** |
+
+Para la bandeja de **"pendientes por decidir"** del líder, usa `GET /leader?status=SOLICITADO&leaderStatus=PENDIENTE`. Hay que mandar los dos filtros: con `leaderStatus=PENDIENTE` solo, también salen solicitudes que otro líder ya rechazó, porque ahí su fila se queda en `PENDIENTE`.
+
+**Respuesta de un listado**
+
+```json
+{
+  "data": [ /* PurchaseRequestView[] */ ],
+  "meta": { "page": 1, "limit": 10, "total": 6, "totalPages": 1 }
+}
+```
+
+**Respuesta de un detalle** (`PurchaseRequestView`; cada elemento de `data` tiene la misma forma)
+
+```json
+{
+  "id": "uuid",
+  "requestNumber": 2,
+  "status": "APRUEBA_LIDER",
+  "purchaseType": null,
+  "justification": "…",
+  "totalAmountEstimated": 100,
+  "totalAmountFinal": 0,
+  "requester": {
+    "id": "uuid", "title": "Ing.", "firstName": "…", "lastName": "…", "email": "…",
+    "department": { "id": 21, "name": "ARQUITECTURA" }
+  },
+  "isos": [ { "id": 1, "name": "ISO 9001:2015 Gestión de la Calidad" } ],
+  "components": [
+    {
+      "id": "uuid de la fila",
+      "component":          { "id": 1, "code": "01",   "name": "…" },
+      "activity":           { "id": 1, "code": "01",   "name": "…" },
+      "administrativeUnit": { "id": 1, "code": "1000", "name": "Dirección Académica" },
+      "fundingSource":      { "id": 1, "code": "11",   "name": "Recurso Fiscal" },
+      "estimatedAmount": 100,
+      "finalAmount": 0,
+      "leader": { "id": "uuid", "title": "L.C.", "firstName": "…", "lastName": "…" },
+      "leaderStatus": "APROBADO",
+      "leaderDecidedAt": "2026-11-23T08:01:06.000Z"
+    }
+  ],
+  "productItems": [
+    {
+      "id": "uuid",
+      "budgetItem": { "id": 1, "code": "200000", "name": "MATERIALES Y SUMINISTROS" },
+      "measurementUnit": { "id": 1, "name": "Bulto" },
+      "quantity": 2,
+      "description": "…",
+      "estimatedAmount": 100,
+      "finalAmount": 0
+    }
+  ],
+  "createdAt": "…",
+  "updatedAt": "…"
+}
+```
+
+Cambios respecto a la respuesta anterior:
+
+- Se quitaron `requestedBy` (ahora es `requester.id`), `isoIds` (ahora es `isos`) e `isRequester`.
+- `requester.departmentName` pasó a ser `requester.department.name`.
+- En cada fila, `componentId`, `activityId` y `fundingSourceId` pasaron a ser objetos `{ id, code, name }`. Se agregaron `administrativeUnit`, `leader` y `leaderDecidedAt`.
+- En cada producto, `budgetItemId` y `measurementUnitId` pasaron a ser objetos.
+- Las filas vienen ordenadas por clave de componente, después de actividad y después de fuente.
+
+**Errores**
+
+| HTTP | `error` | Cuándo |
+|---|---|---|
+| 400 | `Bad Request` | Query param inválido, o un `:id` que no es un UUID |
+| 403 | `Forbidden` | El usuario no tiene el rol de esa sección, o no está registrado o está inactivo |
+| 404 | `PurchaseRequestNotFoundError` | La solicitud no existe **o no entra en esa sección**. No se distinguen, para no revelar qué solicitudes existen |
+
+**Qué hacer en el front**
+
+- Cambiar cada pantalla a la ruta de su sección. Por ejemplo: "Mis solicitudes" usa `/mine`, la bandeja del líder usa `/leader` y la de suficiencia usa `/sufficiency`.
+- Usar los nombres y claves que ya vienen en la respuesta. Ya no hace falta cruzar contra los catálogos.
+- Para la cabecera del formato del líder (componente, actividad, unidad administrativa y presupuesto a afectar), usar sus filas en `components`.
+- El área solicitante es `requester.department.name`.
 
 ## 🔜 Fase 4: Decisiones
 
