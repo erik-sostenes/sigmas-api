@@ -23,7 +23,9 @@ import {
   InvitationComponentRoleMismatchError,
   InvitationActivityAlreadyHasLeaderError,
   InvitationNotFoundError,
+  InvitationRoleNotAllowedError,
 } from './invitation.errors';
+import { ROLE } from './role-codes';
 
 @Injectable()
 export class InvitationLogic implements InvitationLogicI {
@@ -72,6 +74,11 @@ export class InvitationLogic implements InvitationLogicI {
         (id) => !foundIds.has(id),
       );
       throw new InvitationRoleIdsNotFoundError(missingRoleIds);
+    }
+
+    // El super admin no se crea desde la app.
+    if (roles.some((r) => r.code === ROLE.SUPER_ADMIN)) {
+      throw new InvitationRoleNotAllowedError(ROLE.SUPER_ADMIN);
     }
 
     const requiresComponent = roles.some((r) => r.requiresComponent);
