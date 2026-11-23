@@ -8,7 +8,7 @@ import type { Response } from 'express';
 import {
   ComponentReferenceNotFoundError,
   InvalidPurchaseRequestError,
-  IsoNotFoundError,
+  LeaderRowAlreadyDecidedError,
   ProductItemNotFoundError,
   ProductReferenceNotFoundError,
   PurchaseRequestAccessDeniedError,
@@ -18,6 +18,7 @@ import {
   PurchaseRequestNotCreatedError,
   PurchaseRequestNotFoundError,
   RequestComponentNotFoundError,
+  RequestNotAwaitingLeadersError,
 } from '../../business/purchase-request.errors';
 
 @Catch(PurchaseRequestDomainError)
@@ -34,8 +35,18 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
   }
 
   private getHttpStatus(error: Error): number {
-    if (error instanceof PurchaseRequestNotFoundError) {
+    if (
+      error instanceof PurchaseRequestNotFoundError ||
+      error instanceof RequestComponentNotFoundError
+    ) {
       return HttpStatus.NOT_FOUND;
+    }
+
+    if (
+      error instanceof LeaderRowAlreadyDecidedError ||
+      error instanceof RequestNotAwaitingLeadersError
+    ) {
+      return HttpStatus.CONFLICT;
     }
 
     if (error instanceof PurchaseRequestAccessDeniedError) {
@@ -45,11 +56,9 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
     if (
       error instanceof PurchaseRequesterNotFoundError ||
       error instanceof PurchaseRequestIsosNotFoundError ||
-      error instanceof IsoNotFoundError ||
       error instanceof ComponentReferenceNotFoundError ||
       error instanceof ProductReferenceNotFoundError ||
-      error instanceof ProductItemNotFoundError ||
-      error instanceof RequestComponentNotFoundError
+      error instanceof ProductItemNotFoundError
     ) {
       return HttpStatus.UNPROCESSABLE_ENTITY;
     }

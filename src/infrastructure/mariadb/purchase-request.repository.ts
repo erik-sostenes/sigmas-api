@@ -5,6 +5,7 @@ import {
   type PurchaseType,
   type RequestStatus,
 } from '../../business/purchase-request.model';
+import type { ComponentLeaderStatus } from '../../business/request-component.model';
 import type {
   FindPurchaseRequestDetailRepoQuery,
   ListPurchaseRequestsRepoQuery,
@@ -281,7 +282,8 @@ export class PurchaseRequestRepository
                    'activityId', rc.activity_id,
                    'fundingSourceId', rc.funding_source_id,
                    'estimatedAmount', rc.estimated_amount,
-                   'finalAmount', rc.final_amount))
+                   'finalAmount', rc.final_amount,
+                   'leaderStatus', rc.leader_status))
           FROM request_components rc
           WHERE rc.purchase_request_id = pr.id
             ${componentsFilter}) AS components,
@@ -532,6 +534,7 @@ export class PurchaseRequestRepository
         fundingSourceId: Number(c.fundingSourceId),
         estimatedAmount: Number(c.estimatedAmount),
         finalAmount: Number(c.finalAmount),
+        leaderStatus: c.leaderStatus as ComponentLeaderStatus,
       };
     });
   }

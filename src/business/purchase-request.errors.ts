@@ -7,13 +7,6 @@ export abstract class PurchaseRequestDomainError extends Error {
 
 export class InvalidPurchaseRequestError extends PurchaseRequestDomainError {}
 
-export class IsoNotFoundError extends PurchaseRequestDomainError {
-  constructor(public readonly isoId: number) {
-    super(`La ISO con id ${isoId} no existe.`);
-    this.name = 'IsoNotFoundError';
-  }
-}
-
 export class PurchaseRequestIsosNotFoundError extends PurchaseRequestDomainError {
   constructor(public readonly missingIsoIds: number[]) {
     super(
@@ -74,19 +67,6 @@ export class InvalidAmountError extends InvalidPurchaseRequestError {
   }
 }
 
-export class FinalAmountsMismatchError extends PurchaseRequestDomainError {
-  constructor(
-    public readonly componentsTotal: number,
-    public readonly productsTotal: number,
-  ) {
-    super(
-      `La suma de montos finales de componentes (${componentsTotal}) ` +
-        `no coincide con la de productos (${productsTotal}).`,
-    );
-    this.name = 'FinalAmountsMismatchError';
-  }
-}
-
 export class FinalAmountNotAllowedOnCreateError extends PurchaseRequestDomainError {
   constructor(scope: string) {
     super(`No se permite finalAmount ≠ 0 al crear la solicitud (${scope}).`);
@@ -120,14 +100,32 @@ export class ProductItemNotFoundError extends PurchaseRequestDomainError {
   }
 }
 
+// También cuando la fila existe pero no es del líder que decide: no se revela que existe.
 export class RequestComponentNotFoundError extends PurchaseRequestDomainError {
-  constructor(
-    public readonly componentId: number,
-    public readonly activityId: number,
-  ) {
+  constructor(public readonly requestComponentId: string) {
     super(
-      `No existe el componente ${componentId} con la actividad ${activityId} en esta solicitud.`,
+      `La fila '${requestComponentId}' no existe en esta solicitud o no te corresponde.`,
     );
+  }
+}
+
+export class LeaderRowAlreadyDecidedError extends PurchaseRequestDomainError {
+  constructor(public readonly requestComponentId: string) {
+    super(`La fila '${requestComponentId}' ya fue aprobada o rechazada.`);
+  }
+}
+
+export class RequestNotAwaitingLeadersError extends PurchaseRequestDomainError {
+  constructor(currentStatus: string) {
+    super(
+      `La solicitud ya no espera decisión de líderes (estatus actual: '${currentStatus}').`,
+    );
+  }
+}
+
+export class RejectionJustificationRequiredError extends InvalidPurchaseRequestError {
+  constructor() {
+    super('Todo rechazo debe incluir una justificación.');
   }
 }
 

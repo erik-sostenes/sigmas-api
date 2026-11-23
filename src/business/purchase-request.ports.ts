@@ -25,8 +25,7 @@ export interface PurchaseRequestComponentView {
   fundingSourceId: number;
   estimatedAmount: number;
   finalAmount: number;
-  // FUTURO (Fase 2 - Aprobación multi-líder): Se poblará cuando exista leader_status en BD.
-  leaderStatus?: ComponentLeaderStatus;
+  leaderStatus: ComponentLeaderStatus;
 }
 
 export interface PurchaseRequestProductItemView {
@@ -73,19 +72,16 @@ export interface ListPurchaseRequestsInput {
   scope?: PurchaseRequestScope;
   status?: RequestStatus;
   search?: string;
-  // FUTURO (Fase 2 - Aprobación multi-líder): Filtro para bandeja de pendientes del líder (?leaderStatus=PENDIENTE).
-  leaderStatus?: ComponentLeaderStatus;
   page: number;
   limit: number;
 }
 
-// FUTURO (Fase 2 - Aprobación multi-líder): Contrato base para endpoints PATCH de decisión por componente.
 export interface DecideRequestComponentInput {
   purchaseRequestId: PurchaseRequestID;
-  componentId: number;
-  activityId: number;
-  clerkId: string;
+  requestComponentId: string;
+  leaderId: string;
   decision: Exclude<ComponentLeaderStatus, 'PENDIENTE'>;
+  justification?: string;
 }
 
 export interface GetPurchaseRequestByIdInput {

@@ -3,12 +3,11 @@ import {
   InvalidFieldError,
   InvalidAmountError,
   FinalAmountNotAllowedOnCreateError,
+  LeaderRowAlreadyDecidedError,
 } from './purchase-request.errors';
 
 export type RequestComponentID = string;
 
-// FUTURO (Fase 2 - Aprobación multi-líder): Aún no existe la columna leader_status en BD.
-// Se usará cuando cada líder de actividad apruebe/rechace sus propios componentes.
 export const COMPONENT_LEADER_STATUSES = [
   'PENDIENTE',
   'APROBADO',
@@ -24,19 +23,15 @@ export type RequestComponentProps = {
   fundingSourceId: number;
   estimatedAmount: number;
   finalAmount?: number;
-  // FUTURO (Fase 2 - Aprobación multi-líder): campos aún no persistidos en request_components
+  // Líder de la actividad, fijado al guardar la solicitud. Undefined antes de persistir.
+  leaderId?: string;
   leaderStatus?: ComponentLeaderStatus;
-  leaderReviewedBy?: string | null;
-  leaderReviewedAt?: Date | null;
+  leaderDecidedAt?: Date | null;
 };
 
 export type CreateRequestComponentProps = Omit<
   RequestComponentProps,
-  | 'id'
-  | 'finalAmount'
-  | 'leaderStatus'
-  | 'leaderReviewedBy'
-  | 'leaderReviewedAt'
+  'id' | 'finalAmount' | 'leaderId' | 'leaderStatus' | 'leaderDecidedAt'
 > & {
   finalAmount?: number;
 };
@@ -60,12 +55,10 @@ export class RequestComponent {
   readonly activityId: number;
   readonly fundingSourceId: number;
   readonly estimatedAmount: number;
+  readonly leaderId?: string;
   private _finalAmount: number;
-
-  // FUTURO (Fase 2 - Aprobación multi-líder): No se usan en la primera entrega.
   private _leaderStatus: ComponentLeaderStatus;
-  private _leaderReviewedBy: string | null;
-  private _leaderReviewedAt: Date | null;
+  private _leaderDecidedAt: Date | null;
 
   private constructor(props: RequestComponentProps) {
     this.id = props.id;
@@ -74,10 +67,10 @@ export class RequestComponent {
     this.activityId = props.activityId;
     this.fundingSourceId = props.fundingSourceId;
     this.estimatedAmount = props.estimatedAmount;
+    this.leaderId = props.leaderId;
     this._finalAmount = props.finalAmount ?? 0;
     this._leaderStatus = props.leaderStatus ?? 'PENDIENTE';
-    this._leaderReviewedBy = props.leaderReviewedBy ?? null;
-    this._leaderReviewedAt = props.leaderReviewedAt ?? null;
+    this._leaderDecidedAt = props.leaderDecidedAt ?? null;
   }
 
   static create(props: CreateRequestComponentProps): RequestComponent {
@@ -94,8 +87,7 @@ export class RequestComponent {
       ...props,
       finalAmount: 0,
       leaderStatus: 'PENDIENTE',
-      leaderReviewedBy: null,
-      leaderReviewedAt: null,
+      leaderDecidedAt: null,
     });
   }
 
@@ -104,24 +96,18 @@ export class RequestComponent {
       ...props,
       finalAmount: props.finalAmount ?? 0,
       leaderStatus: props.leaderStatus ?? 'PENDIENTE',
-      leaderReviewedBy: props.leaderReviewedBy ?? null,
-      leaderReviewedAt: props.leaderReviewedAt ?? null,
+      leaderDecidedAt: props.leaderDecidedAt ?? null,
     });
   }
 
   get finalAmount(): number {
     return this._finalAmount;
   }
-
-  // FUTURO (Fase 2 - Aprobación multi-líder)
   get leaderStatus(): ComponentLeaderStatus {
     return this._leaderStatus;
   }
-  get leaderReviewedBy(): string | null {
-    return this._leaderReviewedBy;
-  }
-  get leaderReviewedAt(): Date | null {
-    return this._leaderReviewedAt;
+  get leaderDecidedAt(): Date | null {
+    return this._leaderDecidedAt;
   }
 
   updateFinalAmount(newAmount: number): void {
@@ -129,22 +115,15 @@ export class RequestComponent {
     this._finalAmount = newAmount;
   }
 
-  // FUTURO (Fase 2 - Aprobación multi-líder): Se llamarán desde endpoints PATCH de aprobación por líder.
-  approveByLeader(reviewerUserId: string, reviewedAt = new Date()): void {
-    if (!reviewerUserId || !reviewerUserId.trim()) {
-      throw new InvalidFieldError('leaderReviewedBy', 'es obligatorio');
+  // Solo PurchaseRequest debe llamarlo: ahí se valida el estado de la solicitud y el líder.
+  decide(
+    decision: Exclude<ComponentLeaderStatus, 'PENDIENTE'>,
+    decidedAt = new Date(),
+  ): void {
+    if (this._leaderStatus !== 'PENDIENTE') {
+      throw new LeaderRowAlreadyDecidedError(this.id ?? '');
     }
-    this._leaderStatus = 'APROBADO';
-    this._leaderReviewedBy = reviewerUserId;
-    this._leaderReviewedAt = reviewedAt;
-  }
-
-  rejectByLeader(reviewerUserId: string, reviewedAt = new Date()): void {
-    if (!reviewerUserId || !reviewerUserId.trim()) {
-      throw new InvalidFieldError('leaderReviewedBy', 'es obligatorio');
-    }
-    this._leaderStatus = 'RECHAZADO';
-    this._leaderReviewedBy = reviewerUserId;
-    this._leaderReviewedAt = reviewedAt;
+    this._leaderStatus = decision;
+    this._leaderDecidedAt = decidedAt;
   }
 }
