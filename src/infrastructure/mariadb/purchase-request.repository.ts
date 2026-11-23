@@ -5,7 +5,10 @@ import {
   type PurchaseType,
   type RequestStatus,
 } from '../../business/purchase-request.model';
-import type { ComponentLeaderStatus } from '../../business/request-component.model';
+import type {
+  ComponentLeaderStatus,
+  RequestComponent,
+} from '../../business/request-component.model';
 import type {
   FindPurchaseRequestDetailRepoQuery,
   ListPurchaseRequestsRepoQuery,
@@ -18,14 +21,22 @@ import type {
   PurchaseRequestViewer,
 } from '../../business/purchase-request.ports';
 import {
+  ActivityNotInComponentError,
+  ActivityWithoutLeaderError,
   ComponentReferenceNotFoundError,
+  DuplicatedRequestComponentError,
   ProductReferenceNotFoundError,
   PurchaseRequestAlreadyPersistedError,
   PurchaseRequestIsosNotFoundError,
   PurchaseRequestNotCreatedError,
   PurchaseRequesterNotFoundError,
 } from '../../business/purchase-request.errors';
-import { foreignKeyColumn, isForeignKeyViolation } from './mariadb.errors';
+import {
+  foreignKeyColumn,
+  foreignKeyConstraint,
+  isDuplicateEntry,
+  isForeignKeyViolation,
+} from './mariadb.errors';
 import { MariaDBRepository, type Row, type Tx } from './mariadb.repository';
 
 type DatabasePurchaseRequestRow = {
@@ -64,8 +75,6 @@ export class PurchaseRequestRepository
     }
 
     return this.withTransaction(async (tx) => {
-      await this.validateIsosExist(tx, request.isoIds);
-
       const id = await this.insertPurchaseRequest(tx, request);
 
       await this.insertPurchaseRequestIsos(tx, id, request.isoIds);
@@ -74,8 +83,8 @@ export class PurchaseRequestRepository
         await this.insertRequestComponent(tx, id, component);
       }
 
-      for (let i = 0; i < request.productItems.length; i++) {
-        await this.insertProductItem(tx, id, request.productItems[i], i);
+      for (const item of request.productItems) {
+        await this.insertProductItem(tx, id, item);
       }
 
       return id;
@@ -336,21 +345,6 @@ export class PurchaseRequestRepository
   // Validations & Inserts
   // ==========================================
 
-  private async validateIsosExist(tx: Tx, isoIds: number[]): Promise<void> {
-    const isoPlaceholders = this.placeholders(isoIds);
-    const isoRows = await this.executeOn(
-      tx,
-      `SELECT id FROM isos WHERE id IN (${isoPlaceholders})`,
-      isoIds,
-    );
-
-    if (isoRows.length !== isoIds.length) {
-      const foundIds = new Set(isoRows.map((r) => Number(r.id)));
-      const missing = isoIds.filter((id) => !foundIds.has(id));
-      throw new PurchaseRequestIsosNotFoundError(missing);
-    }
-  }
-
   private async insertPurchaseRequest(
     tx: Tx,
     request: PurchaseRequest,
@@ -394,33 +388,45 @@ export class PurchaseRequestRepository
     purchaseRequestId: PurchaseRequestID,
     isoIds: number[],
   ): Promise<void> {
+    // Los duplicados ya los rechaza el dominio; que la ISO exista lo garantiza la FK.
     for (const isoId of isoIds) {
-      await this.executeOn(
-        tx,
-        `INSERT IGNORE INTO purchase_request_isos (purchase_request_id, iso_id) VALUES (?, ?)`,
-        [purchaseRequestId, isoId],
-      );
+      try {
+        await this.executeOn(
+          tx,
+          `INSERT INTO purchase_request_isos (purchase_request_id, iso_id) VALUES (?, ?)`,
+          [purchaseRequestId, isoId],
+        );
+      } catch (error) {
+        if (
+          isForeignKeyViolation(error) &&
+          foreignKeyColumn(error) === 'iso_id'
+        ) {
+          throw new PurchaseRequestIsosNotFoundError([isoId]);
+        }
+        throw error;
+      }
     }
   }
 
+  // El líder de la fila se fija aquí con el líder activo de la actividad.
+  // Si la actividad no tiene líder activo, el SELECT no regresa filas y no se inserta nada.
   private async insertRequestComponent(
     tx: Tx,
     purchaseRequestId: PurchaseRequestID,
-    component: {
-      componentId: number;
-      activityId: number;
-      fundingSourceId: number;
-      estimatedAmount: number;
-      finalAmount: number;
-    },
+    component: RequestComponent,
   ): Promise<void> {
+    let result: unknown;
+
     try {
-      await this.executeOn(
+      result = await this.executeOn(
         tx,
         `INSERT INTO request_components
            (purchase_request_id, component_id, activity_id, funding_source_id,
-            estimated_amount, final_amount)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+            estimated_amount, final_amount, leader_id)
+         SELECT ?, ?, ?, ?, ?, ?, ua.user_id
+         FROM user_activities ua
+         INNER JOIN users u ON u.id = ua.user_id AND u.is_active = TRUE
+         WHERE ua.activity_id = ?`,
         [
           purchaseRequestId,
           component.componentId,
@@ -428,31 +434,41 @@ export class PurchaseRequestRepository
           component.fundingSourceId,
           component.estimatedAmount,
           component.finalAmount,
+          component.activityId,
         ],
       );
     } catch (error) {
+      if (isDuplicateEntry(error)) {
+        throw new DuplicatedRequestComponentError(
+          component.componentId,
+          component.activityId,
+          component.fundingSourceId,
+        );
+      }
       if (isForeignKeyViolation(error)) {
-        const col = foreignKeyColumn(error);
-        if (col === 'component_id') {
-          throw new ComponentReferenceNotFoundError(
-            'component',
-            component.componentId,
-          );
-        }
-        if (col === 'activity_id') {
-          throw new ComponentReferenceNotFoundError(
-            'activity',
-            component.activityId,
-          );
-        }
-        if (col === 'funding_source_id') {
-          throw new ComponentReferenceNotFoundError(
-            'fundingSource',
-            component.fundingSourceId,
-          );
+        switch (foreignKeyConstraint(error)) {
+          case 'fk_rc_component':
+            throw new ComponentReferenceNotFoundError(
+              'component',
+              component.componentId,
+            );
+          case 'fk_rc_activity_component':
+            throw new ActivityNotInComponentError(
+              component.activityId,
+              component.componentId,
+            );
+          case 'fk_rc_funding_source':
+            throw new ComponentReferenceNotFoundError(
+              'fundingSource',
+              component.fundingSourceId,
+            );
         }
       }
       throw error;
+    }
+
+    if ((result as { affectedRows: number }).affectedRows === 0) {
+      throw new ActivityWithoutLeaderError(component.activityId);
     }
   }
 
@@ -467,7 +483,6 @@ export class PurchaseRequestRepository
       estimatedAmount: number;
       finalAmount: number;
     },
-    _index: number,
   ): Promise<void> {
     try {
       await this.executeOn(

@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
+  ActivityNotInComponentError,
+  ActivityWithoutLeaderError,
   ComponentReferenceNotFoundError,
   InvalidPurchaseRequestError,
   LeaderRowAlreadyDecidedError,
@@ -56,6 +58,8 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
     if (
       error instanceof PurchaseRequesterNotFoundError ||
       error instanceof PurchaseRequestIsosNotFoundError ||
+      error instanceof ActivityWithoutLeaderError ||
+      error instanceof ActivityNotInComponentError ||
       error instanceof ComponentReferenceNotFoundError ||
       error instanceof ProductReferenceNotFoundError ||
       error instanceof ProductItemNotFoundError

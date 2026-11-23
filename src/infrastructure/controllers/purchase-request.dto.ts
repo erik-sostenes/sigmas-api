@@ -9,7 +9,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -88,12 +87,8 @@ export class CreateProductItemDto {
   estimatedAmount: number;
 }
 
+// requestedBy no viene en el body: el backend lo toma del token.
 export class CreatePurchaseRequestDto {
-  @IsUUID('all', {
-    message: 'El identificador del solicitante no es un UUID válido.',
-  })
-  requestedBy: string;
-
   @IsString({ message: 'La justificación debe ser texto.' })
   @IsNotEmpty({ message: 'La justificación es obligatoria.' })
   justification: string;

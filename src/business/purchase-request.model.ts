@@ -7,7 +7,6 @@ import {
   InvalidFieldError,
   InvalidAmountError,
   InvalidStatusTransitionError,
-  DuplicatedRequestComponentError,
   ProductItemNotFoundError,
   RequestComponentNotFoundError,
   MissingRequestComponentsError,
@@ -258,24 +257,12 @@ export class PurchaseRequest {
     return this._purchaseType;
   }
 
+  // Las filas repetidas (componente + actividad + fuente) las rechaza el UNIQUE de la BD.
   addRequestComponent(component: RequestComponent): void {
     if (this.id) {
       throw new InvalidFieldError(
         'requestComponents',
         'no se pueden agregar componentes a una solicitud ya guardada',
-      );
-    }
-
-    const duplicated = this._requestComponents.some(
-      (current) =>
-        current.componentId === component.componentId &&
-        current.activityId === component.activityId,
-    );
-
-    if (duplicated) {
-      throw new DuplicatedRequestComponentError(
-        component.componentId,
-        component.activityId,
       );
     }
 

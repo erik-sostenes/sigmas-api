@@ -27,6 +27,13 @@ import {
 } from './purchase-request.dto';
 import { PurchaseRequestExceptionFilter } from './domain-exception.filter';
 import { ClerkAuthGuard } from './guards/clerk-auth.guard';
+import {
+  CurrentViewer,
+  RequireRole,
+  RolesGuard,
+} from './guards/roles.guard';
+import { ROLE } from '../../business/role-codes';
+import type { Viewer } from '../../business/viewer.model';
 
 type AuthenticatedRequest = {
   auth: {
@@ -85,9 +92,15 @@ export class PurchaseRequestController {
     });
   }
 
+  // El solicitante sale del token, nunca del body.
   @Post()
+  @UseGuards(RolesGuard)
+  @RequireRole(ROLE.SOLICITANTE)
   @HttpCode(HttpStatus.CREATED)
-  async create(@Body() dto: CreatePurchaseRequestDto): Promise<{ id: string }> {
+  async create(
+    @CurrentViewer() viewer: Viewer,
+    @Body() dto: CreatePurchaseRequestDto,
+  ): Promise<{ id: string }> {
     const components = (dto.requestComponents ?? []).map((c) =>
       RequestComponent.create({
         componentId: c.componentId,
@@ -108,7 +121,7 @@ export class PurchaseRequestController {
     );
 
     const request = PurchaseRequest.create({
-      requestedBy: dto.requestedBy,
+      requestedBy: viewer.userId,
       justification: dto.justification,
       isoIds: dto.isoIds,
       requestComponents: components,

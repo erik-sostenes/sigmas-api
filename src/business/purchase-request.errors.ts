@@ -18,7 +18,7 @@ export class PurchaseRequestIsosNotFoundError extends PurchaseRequestDomainError
 
 export class ComponentReferenceNotFoundError extends PurchaseRequestDomainError {
   constructor(
-    public readonly field: 'component' | 'activity' | 'fundingSource',
+    public readonly field: 'component' | 'fundingSource',
     public readonly id: number,
   ) {
     super(`La referencia ${field} con id ${id} no existe.`);
@@ -86,11 +86,31 @@ export class DuplicatedRequestComponentError extends PurchaseRequestDomainError 
   constructor(
     public readonly componentId: number,
     public readonly activityId: number,
+    public readonly fundingSourceId: number,
   ) {
     super(
-      `El componente ${componentId} ya está asociado a la actividad ${activityId} en esta solicitud.`,
+      `La actividad ${activityId} del componente ${componentId} ya tiene una fila con la fuente de financiamiento ${fundingSourceId} en esta solicitud.`,
     );
     this.name = 'DuplicatedRequestComponentError';
+  }
+}
+
+export class ActivityWithoutLeaderError extends PurchaseRequestDomainError {
+  constructor(public readonly activityId: number) {
+    super(
+      `La actividad ${activityId} no tiene un líder activo asignado; no se puede incluir en la solicitud.`,
+    );
+  }
+}
+
+export class ActivityNotInComponentError extends PurchaseRequestDomainError {
+  constructor(
+    public readonly activityId: number,
+    public readonly componentId: number,
+  ) {
+    super(
+      `La actividad ${activityId} no existe o no pertenece al componente ${componentId}.`,
+    );
   }
 }
 
