@@ -15,8 +15,9 @@ Bitácora de los cambios de contrato que el frontend tiene que conocer. Cada ent
 | `POST /api/v1/purchase-requests` | ✅ | El body ya **no lleva `requestedBy`**. Solo puede crear quien tiene el rol `solicitante`. Errores nuevos |
 | `GET /api/v1/purchase-requests` y `/:id` | ✅ | **Eliminados.** También se fueron `scope` e `isRequester` |
 | `GET /api/v1/purchase-requests/{mine,leader,sufficiency,resources}` y `/:id` | ✅ | Rutas nuevas, una por sección. La respuesta trae nombres y claves |
-| `POST .../leader/:id/rows/:rowId/decision` | 🔜 | Nuevo. El líder aprueba o rechaza una fila |
-| `POST .../sufficiency/:id/decision` | 🔜 | Nuevo. Suficiencia autoriza o rechaza |
+| `POST .../leader/:id/rows/:rowId/decision` | ✅ | Nuevo. El líder aprueba o rechaza una fila |
+| `POST .../sufficiency/:id/decision` | ✅ | Nuevo. Suficiencia autoriza o rechaza (primera revisión) |
+| `productItems` en todas las respuestas | ✅ | Ahora salen **en el orden en que se capturaron** |
 | Catálogo de estados | ✅ | Se quitó `RECHAZA_RECURSOS` y hay 7 estados nuevos |
 
 ---
@@ -261,11 +262,80 @@ Cambios respecto a la respuesta anterior:
 - Para la cabecera del formato del líder (componente, actividad, unidad administrativa y presupuesto a afectar), usar sus filas en `components`.
 - El área solicitante es `requester.department.name`.
 
-## 🔜 Fase 4: Decisiones
+## ✅ Fase 4: Decisiones de líderes y de suficiencia
 
-- `POST /api/v1/purchase-requests/leader/:id/rows/:rowId/decision`, con body `{ "decision": "APROBADO" | "RECHAZADO", "justification"?: string }`. Errores previstos:
-  - 404: la fila no existe o no es tuya.
-  - 409: la fila ya se decidió, o la solicitud ya no espera a los líderes.
-  - 400: rechazo sin justificación.
-- `POST /api/v1/purchase-requests/sufficiency/:id/decision`, con body `{ "decision": "AUTORIZA" | "RECHAZA", "justification"?: string }`. La solicitud tiene que estar en `APRUEBA_LIDER`.
-- **Todo rechazo exige justificación.**
+### Decisión del líder sobre una fila
+
+`POST /api/v1/purchase-requests/leader/:id/rows/:rowId/decision` (rol `lider_actividad`)
+
+- `:id` es el id de la solicitud.
+- `:rowId` es el `id` de la fila, el mismo que viene en `components[].id` de `GET /leader/:id`.
+
+```json
+{ "decision": "APROBADO" }
+{ "decision": "RECHAZADO", "justification": "No hay presupuesto en mi actividad" }
+```
+
+**Reglas** (ver `BUSINESS_RULES.md`, sección 5.1)
+
+- El líder decide **fila por fila**, y solo las filas donde él es el líder.
+- Si **una** fila se rechaza, la solicitud completa pasa a `RECHAZA_LIDER`. Desde ese momento **ningún líder puede decidir**, aunque tenga filas pendientes.
+- Cuando **todas** las filas están aprobadas, la solicitud pasa a `APRUEBA_LIDER` y le llega a suficiencia.
+- Una fila decidida no se puede cambiar.
+- Si dos líderes deciden al mismo tiempo, el backend procesa una decisión a la vez, así que el resultado siempre es consistente.
+
+**Respuesta:** `200` con la solicitud **tal como la ve el líder después de decidir**. Es el mismo `PurchaseRequestView` de `GET /leader/:id`, con `status` y `components[].leaderStatus` ya actualizados. Sirve para refrescar la pantalla sin otra llamada.
+
+### Decisión de suficiencia (primera revisión, con el monto estimado)
+
+`POST /api/v1/purchase-requests/sufficiency/:id/decision` (rol `suficiencia_presupuestal`)
+
+```json
+{ "decision": "AUTORIZA" }
+{ "decision": "RECHAZA", "justification": "El estimado excede el presupuesto disponible" }
+```
+
+- Solo aplica cuando la solicitud está en `APRUEBA_LIDER`.
+- `AUTORIZA` → `AUTORIZA_SUFICIENCIA`. Desde ahí la solicitud aparece en la bandeja de recursos materiales.
+- `RECHAZA` → `RECHAZA_SUFICIENCIA`. Es terminal.
+
+**Respuesta:** `200` con la solicitud como la ve suficiencia (el mismo `PurchaseRequestView` de `GET /sufficiency/:id`).
+
+### Reglas comunes
+
+- **Todo rechazo exige `justification`.** Si llega vacía o solo con espacios, responde 400. Máximo 2000 caracteres.
+- `justification` también se acepta al aprobar. Es opcional y se guarda.
+- Cada decisión queda en un historial (`purchase_request_history`): quién, cuándo, la justificación, y el estado antes y después. 🔜 Todavía no hay un endpoint para consultarlo.
+
+### Errores
+
+| HTTP | `error` | Cuándo | Qué hacer en el front |
+|---|---|---|---|
+| 400 | `Bad Request` | `decision` inválida, `justification` muy larga, o un id que no es UUID | — |
+| 400 | `RejectionJustificationRequiredError` | Rechazo sin justificación | Pedir la justificación |
+| 403 | `Forbidden` | El usuario no tiene el rol | — |
+| 404 | `PurchaseRequestNotFoundError` | La solicitud no existe, o suficiencia todavía no la ve | Regresar a la bandeja |
+| 404 | `RequestComponentNotFoundError` | La fila no existe o no es del líder | Regresar a la bandeja |
+| 409 | `LeaderRowAlreadyDecidedError` | Esa fila ya se había decidido | Refrescar el detalle |
+| 409 | `RequestNotAwaitingLeadersError` | Otro líder ya rechazó, o la solicitud ya pasó de etapa | Refrescar y mostrar el estado actual |
+| 409 | `InvalidStatusTransitionError` | Suficiencia ya decidió, o la solicitud no está en `APRUEBA_LIDER` | Refrescar y mostrar el estado actual |
+
+Los **409** significan "esto ya cambió mientras lo veías". Lo correcto es refrescar el detalle y mostrar el estado nuevo, no mostrar un error genérico.
+
+### Qué hacer en el front
+
+- **Bandeja del líder:**
+  - Usar `GET /leader?status=SOLICITADO&leaderStatus=PENDIENTE` para listar lo que le falta decidir.
+  - En el detalle, mostrar los botones de aprobar y rechazar **por fila**, solo si `status === 'SOLICITADO'` y `leaderStatus === 'PENDIENTE'`.
+- **Bandeja de suficiencia:**
+  - Usar `GET /sufficiency?status=APRUEBA_LIDER` para listar lo que le falta decidir.
+  - Mostrar los botones de autorizar y rechazar solo si `status === 'APRUEBA_LIDER'`.
+- Al rechazar, pedir la justificación antes de enviar. Es obligatoria.
+
+## ✅ Orden de los productos
+
+- `productItems` ahora sale **siempre en el orden en que el solicitante lo capturó**, en todas las respuestas.
+- El orden se toma del arreglo `productItems` del `POST`.
+- Antes el orden no estaba garantizado, y eso importa porque el formato se imprime y se firma.
+
+**Qué hacer en el front:** mandar `productItems` en el orden en que el usuario los ve, y no reordenarlos al mostrarlos.

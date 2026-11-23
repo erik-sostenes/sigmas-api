@@ -8,8 +8,10 @@ import {
   type Inbox,
   type InboxFilters,
   type InboxVisibility,
+  type LeaderDecisionInput,
   type PaginatedPurchaseRequests,
   type PurchaseRequestView,
+  type SufficiencyDecisionInput,
   PurchaseRequestLogicI,
   PurchaseRequestRepositoryI,
 } from './purchase-request.ports';
@@ -97,5 +99,80 @@ export class PurchaseRequestLogic implements PurchaseRequestLogicI {
     }
 
     return item;
+  }
+
+  // Regresa la solicitud tal como la ve el líder después de decidir.
+  async decideAsLeader(
+    input: LeaderDecisionInput,
+  ): Promise<PurchaseRequestView> {
+    const found = await this.purchaseRequestRepository.updateWithLock(
+      input.purchaseRequestId,
+      (request) => {
+        const statusBefore = request.status;
+        request.decideAsLeader(
+          input.requestComponentId,
+          input.leaderId,
+          input.decision,
+          input.justification,
+        );
+        return {
+          requestComponentId: input.requestComponentId,
+          statusBefore,
+          statusAfter: request.status !== statusBefore ? request.status : null,
+          decision: input.decision,
+          userId: input.leaderId,
+          justification: input.justification,
+        };
+      },
+    );
+
+    if (!found) {
+      throw new PurchaseRequestNotFoundError(input.purchaseRequestId);
+    }
+
+    return await this.getInboxItem(
+      'leader',
+      input.leaderId,
+      input.purchaseRequestId,
+    );
+  }
+
+  // Primera revisión de suficiencia, con el monto estimado.
+  async decideAsSufficiency(
+    input: SufficiencyDecisionInput,
+  ): Promise<PurchaseRequestView> {
+    const found = await this.purchaseRequestRepository.updateWithLock(
+      input.purchaseRequestId,
+      (request) => {
+        // Lo que suficiencia todavía no ve responde igual que si no existiera.
+        if (!SUFFICIENCY_VISIBLE_STATUSES.includes(request.status)) {
+          throw new PurchaseRequestNotFoundError(input.purchaseRequestId);
+        }
+
+        const statusBefore = request.status;
+        if (input.decision === 'AUTORIZA') {
+          request.authorizeBySufficiency();
+        } else {
+          request.rejectBySufficiency(input.justification);
+        }
+        return {
+          statusBefore,
+          statusAfter: request.status,
+          decision: input.decision === 'AUTORIZA' ? 'APROBADO' : 'RECHAZADO',
+          userId: input.userId,
+          justification: input.justification,
+        };
+      },
+    );
+
+    if (!found) {
+      throw new PurchaseRequestNotFoundError(input.purchaseRequestId);
+    }
+
+    return await this.getInboxItem(
+      'sufficiency',
+      input.userId,
+      input.purchaseRequestId,
+    );
   }
 }

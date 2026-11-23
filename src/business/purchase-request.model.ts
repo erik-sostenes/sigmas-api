@@ -327,15 +327,16 @@ export class PurchaseRequest {
     decision: Exclude<ComponentLeaderStatus, 'PENDIENTE'>,
     justification?: string,
   ): void {
-    if (this._status !== 'SOLICITADO') {
-      throw new RequestNotAwaitingLeadersError(this._status);
-    }
-
+    // Primero la fila: a quien no es su líder no se le revela el estado de la solicitud.
     const row = this._requestComponents.find(
       (c) => c.id === requestComponentId && c.leaderId === leaderId,
     );
     if (!row) {
       throw new RequestComponentNotFoundError(requestComponentId);
+    }
+
+    if (this._status !== 'SOLICITADO') {
+      throw new RequestNotAwaitingLeadersError(this._status);
     }
 
     if (decision === 'RECHAZADO') assertJustification(justification);

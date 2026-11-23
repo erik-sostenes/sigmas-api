@@ -2,15 +2,17 @@ import { Injectable } from '@nestjs/common';
 import {
   PurchaseRequest,
   type PurchaseRequestID,
+  type PurchaseRequestProps,
   type PurchaseType,
   type RequestStatus,
 } from '../../business/purchase-request.model';
-import type {
-  ComponentLeaderStatus,
+import {
   RequestComponent,
+  type ComponentLeaderStatus,
 } from '../../business/request-component.model';
 import type {
   FindInboxItemRepoQuery,
+  HistoryEntry,
   InboxVisibility,
   ListInboxRepoQuery,
   PaginatedPurchaseRequests,
@@ -50,6 +52,18 @@ type DatabasePurchaseRequestRow = {
   total_amount_final: string | number;
   created_at: Date;
   updated_at: Date;
+};
+
+type DatabaseRequestComponentRow = {
+  id: string;
+  component_id: number;
+  activity_id: number;
+  funding_source_id: number;
+  estimated_amount: string | number;
+  final_amount: string | number;
+  leader_id: string;
+  leader_status: ComponentLeaderStatus;
+  leader_decided_at: Date | null;
 };
 
 type DatabaseInboxRow = {
@@ -101,8 +115,9 @@ export class PurchaseRequestRepository
         await this.insertRequestComponent(tx, id, component);
       }
 
-      for (const item of request.productItems) {
-        await this.insertProductItem(tx, id, item);
+      // position conserva el orden en que el solicitante capturó los productos
+      for (const [position, item] of request.productItems.entries()) {
+        await this.insertProductItem(tx, id, item, position);
       }
 
       return id;
@@ -179,28 +194,90 @@ export class PurchaseRequestRepository
     return row ? this.mapRowToView(row) : null;
   }
 
-  async search(id: PurchaseRequestID): Promise<PurchaseRequest | null> {
-    return await this.searchOne(
-      `SELECT pr.*,
-         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
-          FROM purchase_request_isos pri
-          WHERE pri.purchase_request_id = pr.id) AS iso_ids
-       FROM purchase_requests pr
-       WHERE pr.id = ?
-       LIMIT 1`,
-      [id],
-    );
-  }
+  // El FOR UPDATE sobre la solicitud serializa las decisiones concurrentes
+  // (p. ej. dos líderes aprobando al mismo tiempo).
+  async updateWithLock(
+    id: PurchaseRequestID,
+    change: (request: PurchaseRequest) => HistoryEntry,
+  ): Promise<boolean> {
+    return this.withTransaction(async (tx) => {
+      const requestRows = await this.executeOn(
+        tx,
+        `SELECT pr.*, NULL AS iso_ids
+         FROM purchase_requests pr
+         WHERE pr.id = ?
+         FOR UPDATE`,
+        [id],
+      );
+      if (!requestRows[0]) return false;
 
-  async searchAll(): Promise<PurchaseRequest[]> {
-    return await this.searchMany(
-      `SELECT pr.*,
-         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
-          FROM purchase_request_isos pri
-          WHERE pri.purchase_request_id = pr.id) AS iso_ids
-       FROM purchase_requests pr
-       ORDER BY pr.request_number DESC`,
-    );
+      const componentRows = (await this.executeOn(
+        tx,
+        `SELECT id, component_id, activity_id, funding_source_id,
+                estimated_amount, final_amount,
+                leader_id, leader_status, leader_decided_at
+         FROM request_components
+         WHERE purchase_request_id = ?
+         FOR UPDATE`,
+        [id],
+      )) as DatabaseRequestComponentRow[];
+
+      // Solo se carga lo que las decisiones necesitan: cabecera y filas.
+      const request = PurchaseRequest.rehydrate({
+        ...this.toDomainProps(requestRows[0] as DatabasePurchaseRequestRow),
+        requestComponents: componentRows.map((row) =>
+          RequestComponent.rehydrate({
+            id: row.id,
+            purchaseRequestId: id,
+            componentId: Number(row.component_id),
+            activityId: Number(row.activity_id),
+            fundingSourceId: Number(row.funding_source_id),
+            estimatedAmount: Number(row.estimated_amount),
+            finalAmount: Number(row.final_amount),
+            leaderId: row.leader_id,
+            leaderStatus: row.leader_status,
+            leaderDecidedAt: row.leader_decided_at,
+          }),
+        ),
+      });
+
+      const entry = change(request);
+
+      await this.executeOn(
+        tx,
+        `UPDATE purchase_requests SET status = ? WHERE id = ?`,
+        [request.status, id],
+      );
+
+      for (const row of request.requestComponents) {
+        await this.executeOn(
+          tx,
+          `UPDATE request_components
+           SET leader_status = ?, leader_decided_at = ?
+           WHERE id = ?`,
+          [row.leaderStatus, row.leaderDecidedAt, row.id],
+        );
+      }
+
+      await this.executeOn(
+        tx,
+        `INSERT INTO purchase_request_history
+           (purchase_request_id, request_component_id, status_before, status_after,
+            decision, user_id, justification)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          entry.requestComponentId ?? null,
+          entry.statusBefore,
+          entry.statusAfter,
+          entry.decision,
+          entry.userId,
+          entry.justification?.trim() || null,
+        ],
+      );
+
+      return true;
+    });
   }
 
   // ==========================================
@@ -286,7 +363,8 @@ export class PurchaseRequestRepository
                    'quantity', pi.quantity,
                    'description', pi.description,
                    'estimatedAmount', pi.estimated_amount,
-                   'finalAmount', pi.final_amount))
+                   'finalAmount', pi.final_amount)
+                 ORDER BY pi.position)
           FROM product_items pi
           INNER JOIN budget_items bi ON bi.id = pi.budget_item_id
           INNER JOIN measurement_units mu ON mu.id = pi.measurement_unit_id
@@ -470,14 +548,15 @@ export class PurchaseRequestRepository
       estimatedAmount: number;
       finalAmount: number;
     },
+    position: number,
   ): Promise<void> {
     try {
       await this.executeOn(
         tx,
         `INSERT INTO product_items
            (purchase_request_id, budget_item_id, measurement_unit_id,
-            quantity, description, estimated_amount, final_amount)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            quantity, description, estimated_amount, final_amount, position)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           purchaseRequestId,
           item.budgetItemId,
@@ -486,6 +565,7 @@ export class PurchaseRequestRepository
           item.description,
           item.estimatedAmount,
           item.finalAmount,
+          position,
         ],
       );
     } catch (error) {
@@ -590,7 +670,11 @@ export class PurchaseRequestRepository
   }
 
   protected toDomain(row: DatabasePurchaseRequestRow): PurchaseRequest {
-    return PurchaseRequest.rehydrate({
+    return PurchaseRequest.rehydrate(this.toDomainProps(row));
+  }
+
+  private toDomainProps(row: DatabasePurchaseRequestRow): PurchaseRequestProps {
+    return {
       id: row.id,
       requestNumber: row.request_number,
       requestedBy: row.requested_by,
@@ -602,6 +686,6 @@ export class PurchaseRequestRepository
       totalAmountFinal: Number(row.total_amount_final),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    });
+    };
   }
 }

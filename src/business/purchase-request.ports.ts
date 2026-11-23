@@ -114,11 +114,38 @@ export interface FindInboxItemRepoQuery {
   visibility: InboxVisibility;
 }
 
-export interface DecideRequestComponentInput {
+// ==========================================
+// Decisiones
+// ==========================================
+
+export type LeaderDecision = Exclude<ComponentLeaderStatus, 'PENDIENTE'>;
+
+export const SUFFICIENCY_DECISIONS = ['AUTORIZA', 'RECHAZA'] as const;
+export type SufficiencyDecision = (typeof SUFFICIENCY_DECISIONS)[number];
+
+export interface LeaderDecisionInput {
   purchaseRequestId: PurchaseRequestID;
   requestComponentId: string;
   leaderId: string;
-  decision: Exclude<ComponentLeaderStatus, 'PENDIENTE'>;
+  decision: LeaderDecision;
+  justification?: string;
+}
+
+export interface SufficiencyDecisionInput {
+  purchaseRequestId: PurchaseRequestID;
+  userId: string;
+  decision: SufficiencyDecision;
+  justification?: string;
+}
+
+// Registro de purchase_request_history. Nunca se borra.
+export interface HistoryEntry {
+  requestComponentId?: string;
+  statusBefore: RequestStatus;
+  // null si la decisión no cambió el estado de la solicitud
+  statusAfter: RequestStatus | null;
+  decision: LeaderDecision;
+  userId: string;
   justification?: string;
 }
 
@@ -135,6 +162,12 @@ export abstract class PurchaseRequestLogicI {
     viewerId: string,
     id: PurchaseRequestID,
   ): Promise<PurchaseRequestView>;
+  abstract decideAsLeader(
+    input: LeaderDecisionInput,
+  ): Promise<PurchaseRequestView>;
+  abstract decideAsSufficiency(
+    input: SufficiencyDecisionInput,
+  ): Promise<PurchaseRequestView>;
 }
 
 // right ports
@@ -146,4 +179,11 @@ export abstract class PurchaseRequestRepositoryI {
   abstract findInboxItem(
     query: FindInboxItemRepoQuery,
   ): Promise<PurchaseRequestView | null>;
+  // Carga la solicitud con sus filas bloqueadas (FOR UPDATE), aplica `change` y guarda
+  // estado, decisiones de las filas y el registro de historial en una sola transacción.
+  // Regresa false si la solicitud no existe. Si `change` lanza, no se guarda nada.
+  abstract updateWithLock(
+    id: PurchaseRequestID,
+    change: (request: PurchaseRequest) => HistoryEntry,
+  ): Promise<boolean>;
 }

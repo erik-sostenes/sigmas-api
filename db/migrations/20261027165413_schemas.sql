@@ -181,6 +181,8 @@ CREATE TABLE IF NOT EXISTS product_items (
     description VARCHAR(500) NOT NULL,
     estimated_amount DECIMAL(12,2) NOT NULL,
     final_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+    position SMALLINT UNSIGNED NOT NULL, -- orden en que lo capturó el solicitante (0, 1, 2…)
+    UNIQUE KEY uq_product_item_position (purchase_request_id, position),
     CONSTRAINT chk_pi_quantity  CHECK (quantity        >  0),
     CONSTRAINT chk_pi_estimated CHECK (estimated_amount >= 0),
     CONSTRAINT chk_pi_final     CHECK (final_amount     >= 0),

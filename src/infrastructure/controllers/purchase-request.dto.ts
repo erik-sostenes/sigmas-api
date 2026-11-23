@@ -23,6 +23,11 @@ import {
   COMPONENT_LEADER_STATUSES,
   type ComponentLeaderStatus,
 } from '../../business/request-component.model';
+import {
+  SUFFICIENCY_DECISIONS,
+  type LeaderDecision,
+  type SufficiencyDecision,
+} from '../../business/purchase-request.ports';
 
 export class CreateRequestComponentDto {
   @IsInt({
@@ -147,4 +152,33 @@ export class LeaderInboxQueryDto extends InboxQueryDto {
     message: 'leaderStatus debe ser uno de: PENDIENTE, APROBADO, RECHAZADO.',
   })
   leaderStatus?: ComponentLeaderStatus;
+}
+
+// La justificación es obligatoria al rechazar; esa regla la valida el dominio.
+export class LeaderDecisionDto {
+  @IsIn(['APROBADO', 'RECHAZADO'], {
+    message: 'decision debe ser APROBADO o RECHAZADO.',
+  })
+  decision: LeaderDecision;
+
+  @IsOptional()
+  @IsString({ message: 'justification debe ser texto.' })
+  @MaxLength(2000, {
+    message: 'justification no puede exceder 2000 caracteres.',
+  })
+  justification?: string;
+}
+
+export class SufficiencyDecisionDto {
+  @IsIn(SUFFICIENCY_DECISIONS, {
+    message: 'decision debe ser AUTORIZA o RECHAZA.',
+  })
+  decision: SufficiencyDecision;
+
+  @IsOptional()
+  @IsString({ message: 'justification debe ser texto.' })
+  @MaxLength(2000, {
+    message: 'justification no puede exceder 2000 caracteres.',
+  })
+  justification?: string;
 }

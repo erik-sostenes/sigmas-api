@@ -10,6 +10,7 @@ import {
   ActivityWithoutLeaderError,
   ComponentReferenceNotFoundError,
   InvalidPurchaseRequestError,
+  InvalidStatusTransitionError,
   LeaderRowAlreadyDecidedError,
   ProductItemNotFoundError,
   ProductReferenceNotFoundError,
@@ -43,9 +44,11 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
       return HttpStatus.NOT_FOUND;
     }
 
+    // La acción no aplica en el estado actual (alguien más ya decidió o ya pasó de etapa)
     if (
       error instanceof LeaderRowAlreadyDecidedError ||
-      error instanceof RequestNotAwaitingLeadersError
+      error instanceof RequestNotAwaitingLeadersError ||
+      error instanceof InvalidStatusTransitionError
     ) {
       return HttpStatus.CONFLICT;
     }

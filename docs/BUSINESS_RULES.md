@@ -73,6 +73,7 @@ Cada fila tiene componente, actividad, fuente de financiamiento ("presupuesto a 
 - Cada producto tiene partida presupuestal, cantidad, unidad de medida, descripción e importe.
 - La **partida presupuestal pertenece solo al producto**. No tiene relación con las actividades ni con los líderes.
 - El importe es el **total de la línea**, no `cantidad × precio`, y **ya incluye impuestos**. El sistema no calcula IVA ni retenciones.
+- Los productos conservan **el orden en que el solicitante los capturó**, porque así se imprimen en el formato.
 
 ## 4. Creación
 

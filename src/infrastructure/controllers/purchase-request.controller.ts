@@ -25,15 +25,13 @@ import type { Viewer } from '../../business/viewer.model';
 import {
   CreatePurchaseRequestDto,
   InboxQueryDto,
+  LeaderDecisionDto,
   LeaderInboxQueryDto,
+  SufficiencyDecisionDto,
 } from './purchase-request.dto';
 import { PurchaseRequestExceptionFilter } from './domain-exception.filter';
 import { ClerkAuthGuard } from './guards/clerk-auth.guard';
-import {
-  CurrentViewer,
-  RequireRole,
-  RolesGuard,
-} from './guards/roles.guard';
+import { CurrentViewer, RequireRole, RolesGuard } from './guards/roles.guard';
 
 const toInboxFilters = (query: LeaderInboxQueryDto): InboxFilters => {
   const search = query.search?.trim();
@@ -118,6 +116,26 @@ export class PurchaseRequestController {
     );
   }
 
+  // El líder aprueba o rechaza una de sus filas. Si rechaza, la solicitud completa
+  // pasa a RECHAZA_LIDER; cuando todas las filas están aprobadas, a APRUEBA_LIDER.
+  @Post('leader/:id/rows/:rowId/decision')
+  @RequireRole(ROLE.LIDER_ACTIVIDAD)
+  @HttpCode(HttpStatus.OK)
+  async decideAsLeader(
+    @CurrentViewer() viewer: Viewer,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('rowId', new ParseUUIDPipe()) rowId: string,
+    @Body() dto: LeaderDecisionDto,
+  ): Promise<PurchaseRequestView> {
+    return await this.purchaseRequestLogic.decideAsLeader({
+      purchaseRequestId: id,
+      requestComponentId: rowId,
+      leaderId: viewer.userId,
+      decision: dto.decision,
+      justification: dto.justification,
+    });
+  }
+
   // ==========================================
   // Suficiencia presupuestal: desde APRUEBA_LIDER
   // ==========================================
@@ -148,6 +166,23 @@ export class PurchaseRequestController {
       viewer.userId,
       id,
     );
+  }
+
+  // Primera revisión, con el monto estimado: solo aplica en APRUEBA_LIDER.
+  @Post('sufficiency/:id/decision')
+  @RequireRole(ROLE.SUFICIENCIA_PRESUPUESTAL)
+  @HttpCode(HttpStatus.OK)
+  async decideAsSufficiency(
+    @CurrentViewer() viewer: Viewer,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SufficiencyDecisionDto,
+  ): Promise<PurchaseRequestView> {
+    return await this.purchaseRequestLogic.decideAsSufficiency({
+      purchaseRequestId: id,
+      userId: viewer.userId,
+      decision: dto.decision,
+      justification: dto.justification,
+    });
   }
 
   // ==========================================
