@@ -88,6 +88,8 @@ export interface PurchaseRequestView {
   id: PurchaseRequestID;
   requestNumber: number;
   status: RequestStatus;
+  // Etapa calculada con TODAS las filas, aunque el líder solo reciba las suyas.
+  statusGroup: StatusGroup;
   purchaseType: PurchaseType | null;
   justification: string;
   totalAmountEstimated: number;

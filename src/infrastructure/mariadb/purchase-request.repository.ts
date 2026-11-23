@@ -37,6 +37,7 @@ import {
   PurchaseRequestNotCreatedError,
   PurchaseRequesterNotFoundError,
 } from '../../business/purchase-request.errors';
+import { statusGroupOf } from '../../business/purchase-request.stages';
 import {
   foreignKeyColumn,
   foreignKeyConstraint,
@@ -88,6 +89,7 @@ type DatabaseInboxRow = {
   requester_email: string;
   department_id: number;
   department_name: string;
+  has_leader_decisions: number | boolean;
   isos: unknown;
   components: unknown;
   product_items: unknown;
@@ -404,6 +406,10 @@ export class PurchaseRequestRepository
          u.email AS requester_email,
          d.id AS department_id,
          d.name AS department_name,
+         -- Sobre todas las filas, no solo las visibles: define la etapa (statusGroup).
+         EXISTS (SELECT 1 FROM request_components xrc
+                 WHERE xrc.purchase_request_id = pr.id
+                   AND xrc.leader_status <> 'PENDIENTE') AS has_leader_decisions,
          (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', i.id, 'name', i.name) ORDER BY i.id)
           FROM purchase_request_isos pri
           INNER JOIN isos i ON i.id = pri.iso_id
@@ -473,6 +479,7 @@ export class PurchaseRequestRepository
       id: row.id,
       requestNumber: Number(row.request_number),
       status: row.status,
+      statusGroup: statusGroupOf(row.status, Boolean(row.has_leader_decisions)),
       purchaseType: row.purchase_type ?? null,
       justification: row.justification,
       totalAmountEstimated: Number(row.total_amount_estimated),

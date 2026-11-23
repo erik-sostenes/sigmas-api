@@ -438,7 +438,9 @@ Son dos bugs de `user.mariadb.repository.ts`. Ninguno cambia contratos, pero con
 
 **Por qué:** la tabla está paginada en el servidor y `status` acepta un solo estado. "En proceso" son varios estados, y filtrar en el front solo vería la página actual. Además, qué cuenta como "en proceso" es una regla de negocio y va a cambiar con nuevas etapas, así que el backend la define y el front no reparte estados.
 
-**Qué hacer en el front:** usar pestañas (Todas, Por validar, En proceso, Aprobadas y Rechazadas). Cada pestaña manda su `statusGroup` y muestra su conteo con `/summary`. Hay que volver a pedir el resumen después de crear una solicitud o de decidir.
+3. Cada solicitud de las respuestas (listado y detalle) trae **`statusGroup`**, su etapa. El backend la calcula con **todas** las filas. Así, en la bandeja del líder, una solicitud donde otro líder ya aprobó sale como `en_proceso`, aunque el líder solo reciba sus filas y la suya siga pendiente.
+
+**Qué hacer en el front:** usar pestañas (Todas, Por validar, En proceso, Aprobadas y Rechazadas). Para el color de cada solicitud, usar `statusGroup`; no hay que deducirlo del `status`. Cada pestaña manda su `statusGroup` y muestra su conteo con `/summary`. Hay que volver a pedir el resumen después de crear una solicitud o de decidir.
 
 **Errores:** si `statusGroup` trae un valor que no existe, responde 400.
 
