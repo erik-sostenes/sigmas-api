@@ -110,3 +110,17 @@ export class UserNotCreatedError extends UserDomainError {
     super('No se pudo registrar el usuario en la base de datos.');
   }
 }
+
+export class UserNotRegisteredError extends UserDomainError {
+  constructor(email: string) {
+    super(
+      `El usuario con correo '${email}' no está registrado en el sistema ni tiene una invitación pendiente.`,
+    );
+  }
+}
+
+export class ClerkUserError extends UserDomainError {
+  constructor(message: string) {
+    super(`Error al interactuar con Clerk: ${message}`);
+  }
+}

@@ -1,13 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { User, UserId } from './user.model';
-import { UserLogicI, UserRepositoryI } from './user.ports';
+import {
+  ClerkUserRepositoryI,
+  UserLogicI,
+  UserRepositoryI,
+} from './user.ports';
 import { InvitationRepositoryI } from './invitation.ports';
+import {
+  ClerkUserError,
+  UserAlreadyExistsError,
+  UserNotCreatedError,
+  UserNotRegisteredError,
+} from './user.errors';
 
 @Injectable()
 export class UserLogic implements UserLogicI {
   constructor(
     private readonly userRepository: UserRepositoryI,
     private readonly invitationRepository: InvitationRepositoryI,
+    private readonly clerkUserRepository: ClerkUserRepositoryI,
   ) {}
 
   async createFromInvitation(
@@ -44,5 +55,41 @@ export class UserLogic implements UserLogicI {
     }
 
     return userId;
+  }
+
+  async getUsers(): Promise<User[]> {
+    return await this.userRepository.findAll();
+  }
+
+  // Se llama al iniciar sesión: si Clerk registró al usuario pero el webhook
+  // no llegó o falló, se crea aquí a partir de su invitación pendiente.
+  async syncFromClerk(clerkId: string): Promise<User> {
+    const existing = await this.userRepository.findByClerkId(clerkId);
+    if (existing) {
+      return existing;
+    }
+
+    const email = await this.clerkUserRepository.getPrimaryEmail(clerkId);
+    if (!email) {
+      throw new ClerkUserError('El usuario no tiene un correo principal.');
+    }
+
+    try {
+      const userId = await this.createFromInvitation(clerkId, email);
+      if (!userId) {
+        throw new UserNotRegisteredError(email);
+      }
+    } catch (error) {
+      // El webhook pudo haber creado al usuario al mismo tiempo
+      if (!(error instanceof UserAlreadyExistsError)) {
+        throw error;
+      }
+    }
+
+    const user = await this.userRepository.findByClerkId(clerkId);
+    if (!user) {
+      throw new UserNotCreatedError();
+    }
+    return user;
   }
 }

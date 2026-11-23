@@ -5,6 +5,14 @@ export class InvalidInvitationError extends Error {
   }
 }
 
+// Hereda de InvalidInvitationError: el filtro responde 400.
+export class InvitationRoleNotAllowedError extends InvalidInvitationError {
+  constructor(roleCode: string) {
+    super(`El rol '${roleCode}' no se puede asignar por invitación.`);
+    this.name = 'InvitationRoleNotAllowedError';
+  }
+}
+
 export class InvitationUserAlreadyExistsError extends Error {
   constructor(email: string) {
     super(`Ya existe un usuario registrado con el correo '${email}'.`);
@@ -115,6 +123,15 @@ export class InvitationNotFoundError extends Error {
   constructor(id: string) {
     super(`La invitación con ID '${id}' no existe.`);
     this.name = 'InvitationNotFoundError';
+  }
+}
+
+export class InvitationAlreadyAcceptedError extends Error {
+  constructor() {
+    super(
+      'La invitación ya fue aceptada en Clerk y no se puede cancelar. Verifica que el usuario se haya registrado correctamente.',
+    );
+    this.name = 'InvitationAlreadyAcceptedError';
   }
 }
 

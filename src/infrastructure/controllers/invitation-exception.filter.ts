@@ -19,6 +19,7 @@ import {
   InvitationComponentRoleMismatchError,
   InvitationActivityAlreadyHasLeaderError,
   InvitationNotFoundError,
+  InvitationAlreadyAcceptedError,
   ClerkInvitationError,
 } from '../../business/invitation.errors';
 
@@ -36,6 +37,7 @@ import {
   InvitationComponentRoleMismatchError,
   InvitationActivityAlreadyHasLeaderError,
   InvitationNotFoundError,
+  InvitationAlreadyAcceptedError,
   ClerkInvitationError,
 )
 export class InvitationExceptionFilter implements ExceptionFilter {
@@ -57,7 +59,8 @@ export class InvitationExceptionFilter implements ExceptionFilter {
       error instanceof InvitationUserAlreadyExistsError ||
       error instanceof InvitationAlreadyPendingError ||
       error instanceof InvitationComponentAlreadyHasLeaderError ||
-      error instanceof InvitationActivityAlreadyHasLeaderError
+      error instanceof InvitationActivityAlreadyHasLeaderError ||
+      error instanceof InvitationAlreadyAcceptedError
     ) {
       status = HttpStatus.CONFLICT;
     }

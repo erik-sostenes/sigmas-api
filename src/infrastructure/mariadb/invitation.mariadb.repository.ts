@@ -44,6 +44,12 @@ export class InvitationMariaDBRepository
     return this.searchOne(`SELECT * FROM invitations WHERE id = ?`, [id]);
   }
 
+  async findAll(): Promise<Invitation[]> {
+    return this.searchMany(
+      `SELECT * FROM invitations ORDER BY created_at DESC`,
+    );
+  }
+
   async existsByEmail(email: string): Promise<boolean> {
     const rows = await this.execute(
       `SELECT 1 FROM invitations WHERE email = ? LIMIT 1`,

@@ -616,12 +616,10 @@ ON DUPLICATE KEY UPDATE
 -- ------------------------------------------------------------
 -- isos
 -- ------------------------------------------------------------
-INSERT INTO isos (code, name) VALUES
-    ('ISO 9001:2015', 'Gestión de la Calidad'),
-    ('ISO 14001:2015', 'Gestión Ambiental'),
-    ('ISO 45001:2018', 'Gestión de la Seguridad y Salud en el Trabajo'),
-    ('ISO 50001:2018', 'Gestión de la Energía')
-ON DUPLICATE KEY UPDATE
-    name = VALUES(name);
+INSERT INTO isos (name) VALUES
+    ('ISO 9001:2015 Gestión de la Calidad'),
+    ('ISO 14001:2015 Gestión Ambiental'),
+    ('ISO 45001:2018 Gestión de la Seguridad y Salud en el Trabajo'),
+    ('ISO 50001:2018 Gestión de la Energía');
 
 

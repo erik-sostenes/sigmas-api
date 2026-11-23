@@ -9,6 +9,8 @@ import { FundingSourceModule } from './funding-source.module';
 import { DepartmentModule } from './department.module';
 import { RoleModule } from './role.module';
 import { ActivityModule } from './activity.module';
+import { MeasurementUnitModule } from './measurement-unit.module';
+import { BudgetItemModule } from './budget-item.module';
 
 @Module({
   imports: [
@@ -25,6 +27,8 @@ import { ActivityModule } from './activity.module';
     DepartmentModule,
     RoleModule,
     FundingSourceModule,
+    MeasurementUnitModule,
+    BudgetItemModule,
   ],
 })
 export class AppModule {}

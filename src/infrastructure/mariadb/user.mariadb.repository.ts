@@ -5,6 +5,7 @@ import { User, UserId } from '../../business/user.model';
 import {
   isDuplicateEntry,
   isForeignKeyViolation,
+  isSqlError,
   foreignKeyColumn,
 } from './mariadb.errors';
 import {
@@ -193,18 +194,22 @@ export class UserMariaDBRepository
           [userId, role.id],
         );
       }
-      for (const act of lockedActivities) {
+      // Las que ya lidera este usuario (re-sincronización) no se vuelven a insertar
+      const newActivities = lockedActivities.filter(
+        (a) => a.leader_id !== userId,
+      );
+      for (const act of newActivities) {
         await this.executeOn(
           tx,
-          `INSERT INTO user_activities (user_id, activity_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id=VALUES(user_id)`,
+          `INSERT INTO user_activities (user_id, activity_id) VALUES (?, ?)`,
           [userId, act.id],
         );
       }
 
       return userId;
     }).catch((error) => {
-      // Manejo de errores SQL al final de la transacción
-      if (error instanceof Error && error.name.includes('Error')) throw error;
+      // Los errores de dominio pasan tal cual; solo se traducen los de MariaDB
+      if (!isSqlError(error)) throw error;
 
       if (isDuplicateEntry(error)) throw new UserAlreadyExistsError(user.email);
 
@@ -239,19 +244,47 @@ export class UserMariaDBRepository
     return rows.length > 0;
   }
 
+  async findAll(): Promise<User[]> {
+    return this.searchMany(
+      `SELECT u.*,
+         (SELECT JSON_ARRAYAGG(ur.role_id) FROM user_roles ur WHERE ur.user_id = u.id) AS role_ids,
+         (SELECT JSON_ARRAYAGG(ua.activity_id) FROM user_activities ua WHERE ua.user_id = u.id) AS activity_ids
+       FROM users u
+       ORDER BY u.created_at DESC`,
+    );
+  }
+
+  async findByClerkId(clerkId: string): Promise<User | null> {
+    return this.searchOne(
+      `SELECT u.*,
+         (SELECT JSON_ARRAYAGG(ur.role_id) FROM user_roles ur WHERE ur.user_id = u.id) AS role_ids,
+         (SELECT JSON_ARRAYAGG(ua.activity_id) FROM user_activities ua WHERE ua.user_id = u.id) AS activity_ids
+       FROM users u
+       WHERE u.clerk_id = ?
+       LIMIT 1`,
+      [clerkId],
+    );
+  }
+
+  private parseIds(value: unknown): number[] {
+    if (value === null || value === undefined) return [];
+    const ids = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(ids) ? ids.map(Number) : [];
+  }
+
   protected toDomain(row: any): User {
     return User.rehydrate({
       id: row.id,
       clerkId: row.clerk_id,
-      departmentId: row.department_id,
-      componentId: row.component_id,
+      departmentId: Number(row.department_id),
+      componentId: row.component_id ? Number(row.component_id) : null,
       title: row.title,
       firstName: row.first_name,
       lastName: row.last_name,
       email: row.email,
       isActive: Boolean(row.is_active),
-      roleIds: [],
-      activityIds: [],
+      roleIds: this.parseIds(row.role_ids),
+      activityIds: this.parseIds(row.activity_ids),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     });
