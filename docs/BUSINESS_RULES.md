@@ -269,6 +269,7 @@ Fotos del proceso actual en papel. Sirven como referencia de qué datos maneja c
      - filtros de `purchaseType` y "sin clasificar" en `/resources`,
      - los endpoints de clasificar y terminar el estudio.
 2. Quién reparte el monto final entre las filas de distribución después del estudio de mercado.
+   - **Solicitudes con varios componentes o actividades.** El backend ya las soporta: filas, un líder por fila, aprobación fila por fila y visibilidad por líder. Pero falta terminar de definir las reglas de negocio de ese caso. Mientras tanto, **el front solo captura una fila** (decisión del 22 de noviembre de 2026).
 3. Qué documentos se generan cuando suficiencia aprueba los montos finales.
 4. Alternativa al rechazo cuando el monto final excede el estimado: consultar a los líderes.
 5. Admin:
