@@ -1,20 +1,25 @@
 import { ProductItem } from './product-item.model';
-import { RequestComponent } from './request-component.model';
+import {
+  RequestComponent,
+  type ComponentLeaderStatus,
+} from './request-component.model';
 import {
   InvalidFieldError,
   InvalidAmountError,
   InvalidStatusTransitionError,
-  DuplicatedRequestComponentError,
   ProductItemNotFoundError,
   RequestComponentNotFoundError,
   MissingRequestComponentsError,
   MissingProductItemsError,
   ComponentsAmountMismatchError,
   ProductsAmountMismatchError,
+  RequestNotAwaitingLeadersError,
+  RejectionJustificationRequiredError,
 } from './purchase-request.errors';
 
 export type PurchaseRequestID = string;
 
+// Estados y transiciones: docs/BUSINESS_RULES.md (sección 5)
 export const REQUEST_STATUSES = [
   'SOLICITADO',
   'APRUEBA_LIDER',
@@ -22,9 +27,15 @@ export const REQUEST_STATUSES = [
   'AUTORIZA_SUFICIENCIA',
   'RECHAZA_SUFICIENCIA',
   'EN_REVISION_RECURSOS',
-  'RECHAZA_RECURSOS',
   'PENDIENTE_APROBACION_SUFICIENCIA',
   'APRUEBA_SUFICIENCIA',
+  'RECHAZA_SUFICIENCIA_FINAL',
+  'APRUEBA_REVISION',
+  'RECHAZA_REVISION',
+  'AUTORIZA_DIRECCION',
+  'RECHAZA_DIRECCION',
+  'APRUEBA_FISCAL',
+  'RECHAZA_FISCAL',
 ] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
@@ -71,18 +82,27 @@ const ALLOWED_STATUS_TRANSITIONS: Record<
   SOLICITADO: ['APRUEBA_LIDER', 'RECHAZA_LIDER'],
   APRUEBA_LIDER: ['AUTORIZA_SUFICIENCIA', 'RECHAZA_SUFICIENCIA'],
   AUTORIZA_SUFICIENCIA: ['EN_REVISION_RECURSOS'],
-  EN_REVISION_RECURSOS: [
-    'PENDIENTE_APROBACION_SUFICIENCIA',
-    'RECHAZA_RECURSOS',
-  ],
+  EN_REVISION_RECURSOS: ['PENDIENTE_APROBACION_SUFICIENCIA'],
   PENDIENTE_APROBACION_SUFICIENCIA: [
     'APRUEBA_SUFICIENCIA',
-    'RECHAZA_SUFICIENCIA',
+    'RECHAZA_SUFICIENCIA_FINAL',
   ],
+  APRUEBA_SUFICIENCIA: ['APRUEBA_REVISION', 'RECHAZA_REVISION'],
+  APRUEBA_REVISION: ['AUTORIZA_DIRECCION', 'RECHAZA_DIRECCION'],
+  AUTORIZA_DIRECCION: ['APRUEBA_FISCAL', 'RECHAZA_FISCAL'],
   RECHAZA_LIDER: [],
   RECHAZA_SUFICIENCIA: [],
-  RECHAZA_RECURSOS: [],
-  APRUEBA_SUFICIENCIA: [],
+  RECHAZA_SUFICIENCIA_FINAL: [],
+  RECHAZA_REVISION: [],
+  RECHAZA_DIRECCION: [],
+  APRUEBA_FISCAL: [],
+  RECHAZA_FISCAL: [],
+};
+
+const assertJustification = (justification?: string): void => {
+  if (!justification || !justification.trim()) {
+    throw new RejectionJustificationRequiredError();
+  }
 };
 
 const assertNonEmpty = (value: string, field: string): void => {
@@ -237,24 +257,12 @@ export class PurchaseRequest {
     return this._purchaseType;
   }
 
+  // Las filas repetidas (componente + actividad + fuente) las rechaza el UNIQUE de la BD.
   addRequestComponent(component: RequestComponent): void {
     if (this.id) {
       throw new InvalidFieldError(
         'requestComponents',
         'no se pueden agregar componentes a una solicitud ya guardada',
-      );
-    }
-
-    const duplicated = this._requestComponents.some(
-      (current) =>
-        current.componentId === component.componentId &&
-        current.activityId === component.activityId,
-    );
-
-    if (duplicated) {
-      throw new DuplicatedRequestComponentError(
-        component.componentId,
-        component.activityId,
       );
     }
 
@@ -293,16 +301,15 @@ export class PurchaseRequest {
   }
 
   updateRequestComponentFinalAmount(
-    componentId: number,
-    activityId: number,
+    requestComponentId: string,
     newAmount: number,
   ): void {
     const component = this._requestComponents.find(
-      (c) => c.componentId === componentId && c.activityId === activityId,
+      (c) => c.id === requestComponentId,
     );
 
     if (!component) {
-      throw new RequestComponentNotFoundError(componentId, activityId);
+      throw new RequestComponentNotFoundError(requestComponentId);
     }
 
     component.updateFinalAmount(newAmount);
@@ -310,25 +317,43 @@ export class PurchaseRequest {
 
   // ==========================================
   // MÉTODOS DE FLUJO DE NEGOCIO
-  // FUTURO: Se conectarán cuando se implementen los endpoints PATCH de aprobación/rechazo.
   // ==========================================
-  approveByLeader(): void {
-    this.changeStatus('APRUEBA_LIDER');
+
+  // El líder decide una de sus filas. Si alguna fila queda rechazada la solicitud
+  // pasa a RECHAZA_LIDER; cuando todas están aprobadas, a APRUEBA_LIDER.
+  decideAsLeader(
+    requestComponentId: string,
+    leaderId: string,
+    decision: Exclude<ComponentLeaderStatus, 'PENDIENTE'>,
+    justification?: string,
+  ): void {
+    // Primero la fila: a quien no es su líder no se le revela el estado de la solicitud.
+    const row = this._requestComponents.find(
+      (c) => c.id === requestComponentId && c.leaderId === leaderId,
+    );
+    if (!row) {
+      throw new RequestComponentNotFoundError(requestComponentId);
+    }
+
+    if (this._status !== 'SOLICITADO') {
+      throw new RequestNotAwaitingLeadersError(this._status);
+    }
+
+    if (decision === 'RECHAZADO') assertJustification(justification);
+
+    row.decide(decision);
+    this.syncStatusFromLeaderDecisions();
   }
-  rejectByLeader(): void {
-    this.changeStatus('RECHAZA_LIDER');
-  }
+
   authorizeBySufficiency(): void {
     this.changeStatus('AUTORIZA_SUFICIENCIA');
   }
-  rejectBySufficiency(): void {
+  rejectBySufficiency(justification?: string): void {
+    assertJustification(justification);
     this.changeStatus('RECHAZA_SUFICIENCIA');
   }
-  sendToResources(): void {
+  startMarketStudy(): void {
     this.changeStatus('EN_REVISION_RECURSOS');
-  }
-  rejectByResources(): void {
-    this.changeStatus('RECHAZA_RECURSOS');
   }
   finishMarketStudy(): void {
     this.changeStatus('PENDIENTE_APROBACION_SUFICIENCIA');
@@ -336,36 +361,31 @@ export class PurchaseRequest {
   approveBySufficiency(): void {
     this.changeStatus('APRUEBA_SUFICIENCIA');
   }
+  rejectFinalBySufficiency(justification?: string): void {
+    assertJustification(justification);
+    this.changeStatus('RECHAZA_SUFICIENCIA_FINAL');
+  }
 
-  // FUTURO (Aprobación multi-líder)
-  // Calcula el estatus global de la solicitud a partir del leaderStatus de sus componentes:
-  // - Al menos uno RECHAZADO -> RECHAZA_LIDER
-  // - Todos APROBADO -> APRUEBA_LIDER
-  // - Al menos uno PENDIENTE y ninguno RECHAZADO -> se mantiene en SOLICITADO
-  syncStatusFromComponentApprovals(): void {
-    if (this._requestComponents.length === 0) return;
+  // ==========================================
+  // MÉTODOS PRIVADOS
+  // ==========================================
 
+  private syncStatusFromLeaderDecisions(): void {
     const hasRejected = this._requestComponents.some(
       (c) => c.leaderStatus === 'RECHAZADO',
     );
     if (hasRejected) {
-      if (this._status !== 'RECHAZA_LIDER') {
-        this.changeStatus('RECHAZA_LIDER');
-      }
+      this.changeStatus('RECHAZA_LIDER');
       return;
     }
 
     const allApproved = this._requestComponents.every(
       (c) => c.leaderStatus === 'APROBADO',
     );
-    if (allApproved && this._status !== 'APRUEBA_LIDER') {
+    if (allApproved) {
       this.changeStatus('APRUEBA_LIDER');
     }
   }
-
-  // ==========================================
-  // MÉTODOS PRIVADOS
-  // ==========================================
 
   private changeStatus(nextStatus: RequestStatus): void {
     const allowed = ALLOWED_STATUS_TRANSITIONS[this._status];

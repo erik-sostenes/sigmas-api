@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { ROLE } from '../../../business/role-codes';
 
 @Injectable()
 export class SuperAdminGuard implements CanActivate {
@@ -13,7 +14,7 @@ export class SuperAdminGuard implements CanActivate {
     const metadata = request.auth?.sessionClaims?.metadata;
     const userRole = metadata?.rol || metadata?.role;
 
-    if (userRole !== 'super_admin') {
+    if (userRole !== ROLE.SUPER_ADMIN) {
       throw new ForbiddenException(
         'Solo un Super Admin puede realizar esta acción',
       );

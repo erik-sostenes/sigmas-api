@@ -6,18 +6,21 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
+  ActivityNotInComponentError,
+  ActivityWithoutLeaderError,
   ComponentReferenceNotFoundError,
   InvalidPurchaseRequestError,
-  IsoNotFoundError,
+  InvalidStatusTransitionError,
+  LeaderRowAlreadyDecidedError,
   ProductItemNotFoundError,
   ProductReferenceNotFoundError,
-  PurchaseRequestAccessDeniedError,
   PurchaseRequestDomainError,
   PurchaseRequesterNotFoundError,
   PurchaseRequestIsosNotFoundError,
   PurchaseRequestNotCreatedError,
   PurchaseRequestNotFoundError,
   RequestComponentNotFoundError,
+  RequestNotAwaitingLeadersError,
 } from '../../business/purchase-request.errors';
 
 @Catch(PurchaseRequestDomainError)
@@ -34,22 +37,30 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
   }
 
   private getHttpStatus(error: Error): number {
-    if (error instanceof PurchaseRequestNotFoundError) {
+    if (
+      error instanceof PurchaseRequestNotFoundError ||
+      error instanceof RequestComponentNotFoundError
+    ) {
       return HttpStatus.NOT_FOUND;
     }
 
-    if (error instanceof PurchaseRequestAccessDeniedError) {
-      return HttpStatus.FORBIDDEN;
+    // La acción no aplica en el estado actual (alguien más ya decidió o ya pasó de etapa)
+    if (
+      error instanceof LeaderRowAlreadyDecidedError ||
+      error instanceof RequestNotAwaitingLeadersError ||
+      error instanceof InvalidStatusTransitionError
+    ) {
+      return HttpStatus.CONFLICT;
     }
 
     if (
       error instanceof PurchaseRequesterNotFoundError ||
       error instanceof PurchaseRequestIsosNotFoundError ||
-      error instanceof IsoNotFoundError ||
+      error instanceof ActivityWithoutLeaderError ||
+      error instanceof ActivityNotInComponentError ||
       error instanceof ComponentReferenceNotFoundError ||
       error instanceof ProductReferenceNotFoundError ||
-      error instanceof ProductItemNotFoundError ||
-      error instanceof RequestComponentNotFoundError
+      error instanceof ProductItemNotFoundError
     ) {
       return HttpStatus.UNPROCESSABLE_ENTITY;
     }

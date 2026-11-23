@@ -9,7 +9,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -21,8 +20,15 @@ import {
   type RequestStatus,
 } from '../../business/purchase-request.model';
 import {
-  PURCHASE_REQUEST_SCOPES,
-  type PurchaseRequestScope,
+  COMPONENT_LEADER_STATUSES,
+  type ComponentLeaderStatus,
+} from '../../business/request-component.model';
+import {
+  STATUS_GROUPS,
+  SUFFICIENCY_DECISIONS,
+  type LeaderDecision,
+  type StatusGroup,
+  type SufficiencyDecision,
 } from '../../business/purchase-request.ports';
 
 export class CreateRequestComponentDto {
@@ -88,12 +94,8 @@ export class CreateProductItemDto {
   estimatedAmount: number;
 }
 
+// requestedBy no viene en el body: el backend lo toma del token.
 export class CreatePurchaseRequestDto {
-  @IsUUID('all', {
-    message: 'El identificador del solicitante no es un UUID válido.',
-  })
-  requestedBy: string;
-
   @IsString({ message: 'La justificación debe ser texto.' })
   @IsNotEmpty({ message: 'La justificación es obligatoria.' })
   justification: string;
@@ -118,26 +120,21 @@ export class CreatePurchaseRequestDto {
   productItems: CreateProductItemDto[];
 }
 
-export class GetPurchaseRequestByIdQueryDto {
-  @IsOptional()
-  @IsIn(PURCHASE_REQUEST_SCOPES, {
-    message: 'scope debe ser uno de: requester, leader, all.',
-  })
-  scope?: PurchaseRequestScope;
-}
-
-export class ListPurchaseRequestsQueryDto {
-  @IsOptional()
-  @IsIn(PURCHASE_REQUEST_SCOPES, {
-    message: 'scope debe ser uno de: requester, leader, all.',
-  })
-  scope?: PurchaseRequestScope;
-
+// Filtros de las bandejas. Solo reducen lo que la bandeja ya permite ver.
+export class InboxQueryDto {
   @IsOptional()
   @IsIn(REQUEST_STATUSES, {
     message: 'status no es un estatus válido.',
   })
   status?: RequestStatus;
+
+  // Etapa (pestaña): qué estados incluye cada una lo define el backend.
+  @IsOptional()
+  @IsIn(STATUS_GROUPS, {
+    message:
+      'statusGroup debe ser uno de: por_validar, en_proceso, aprobadas, rechazadas.',
+  })
+  statusGroup?: StatusGroup;
 
   @IsOptional()
   @IsString({ message: 'search debe ser texto.' })
@@ -156,4 +153,42 @@ export class ListPurchaseRequestsQueryDto {
   @Min(1, { message: 'limit debe ser al menos 1.' })
   @Max(100, { message: 'limit no puede ser mayor a 100.' })
   limit?: number = 10;
+}
+
+export class LeaderInboxQueryDto extends InboxQueryDto {
+  // Estado de las filas del líder. Con status=SOLICITADO da sus pendientes por decidir.
+  @IsOptional()
+  @IsIn(COMPONENT_LEADER_STATUSES, {
+    message: 'leaderStatus debe ser uno de: PENDIENTE, APROBADO, RECHAZADO.',
+  })
+  leaderStatus?: ComponentLeaderStatus;
+}
+
+// La justificación es obligatoria al rechazar; esa regla la valida el dominio.
+export class LeaderDecisionDto {
+  @IsIn(['APROBADO', 'RECHAZADO'], {
+    message: 'decision debe ser APROBADO o RECHAZADO.',
+  })
+  decision: LeaderDecision;
+
+  @IsOptional()
+  @IsString({ message: 'justification debe ser texto.' })
+  @MaxLength(2000, {
+    message: 'justification no puede exceder 2000 caracteres.',
+  })
+  justification?: string;
+}
+
+export class SufficiencyDecisionDto {
+  @IsIn(SUFFICIENCY_DECISIONS, {
+    message: 'decision debe ser AUTORIZA o RECHAZA.',
+  })
+  decision: SufficiencyDecision;
+
+  @IsOptional()
+  @IsString({ message: 'justification debe ser texto.' })
+  @MaxLength(2000, {
+    message: 'justification no puede exceder 2000 caracteres.',
+  })
+  justification?: string;
 }

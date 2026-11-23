@@ -5,6 +5,7 @@ import { User, UserId } from '../../business/user.model';
 import {
   isDuplicateEntry,
   isForeignKeyViolation,
+  isSqlError,
   foreignKeyColumn,
 } from './mariadb.errors';
 import {
@@ -193,7 +194,11 @@ export class UserMariaDBRepository
           [userId, role.id],
         );
       }
-      for (const act of lockedActivities) {
+      // Las que ya lidera este usuario (re-sincronización) no se vuelven a insertar
+      const newActivities = lockedActivities.filter(
+        (a) => a.leader_id !== userId,
+      );
+      for (const act of newActivities) {
         await this.executeOn(
           tx,
           `INSERT INTO user_activities (user_id, activity_id) VALUES (?, ?)`,
@@ -203,8 +208,8 @@ export class UserMariaDBRepository
 
       return userId;
     }).catch((error) => {
-      // Manejo de errores SQL al final de la transacción
-      if (error instanceof Error && error.name.includes('Error')) throw error;
+      // Los errores de dominio pasan tal cual; solo se traducen los de MariaDB
+      if (!isSqlError(error)) throw error;
 
       if (isDuplicateEntry(error)) throw new UserAlreadyExistsError(user.email);
 

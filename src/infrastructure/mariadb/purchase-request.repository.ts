@@ -2,29 +2,47 @@ import { Injectable } from '@nestjs/common';
 import {
   PurchaseRequest,
   type PurchaseRequestID,
+  type PurchaseRequestProps,
   type PurchaseType,
   type RequestStatus,
 } from '../../business/purchase-request.model';
+import {
+  RequestComponent,
+  type ComponentLeaderStatus,
+} from '../../business/request-component.model';
 import type {
-  FindPurchaseRequestDetailRepoQuery,
-  ListPurchaseRequestsRepoQuery,
+  FindInboxItemRepoQuery,
+  HistoryEntry,
+  InboxSummary,
+  InboxVisibility,
+  ListInboxRepoQuery,
   PaginatedPurchaseRequests,
   PurchaseRequestComponentView,
-  PurchaseRequestListItem,
+  PurchaseRequestHistoryView,
   PurchaseRequestProductItemView,
   PurchaseRequestRepositoryI,
-  PurchaseRequestScope,
-  PurchaseRequestViewer,
+  PurchaseRequestView,
+  StatusGroup,
+  StatusGroupCondition,
+  SummarizeInboxRepoQuery,
 } from '../../business/purchase-request.ports';
 import {
+  ActivityNotInComponentError,
+  ActivityWithoutLeaderError,
   ComponentReferenceNotFoundError,
+  DuplicatedRequestComponentError,
   ProductReferenceNotFoundError,
   PurchaseRequestAlreadyPersistedError,
   PurchaseRequestIsosNotFoundError,
   PurchaseRequestNotCreatedError,
   PurchaseRequesterNotFoundError,
 } from '../../business/purchase-request.errors';
-import { foreignKeyColumn, isForeignKeyViolation } from './mariadb.errors';
+import {
+  foreignKeyColumn,
+  foreignKeyConstraint,
+  isDuplicateEntry,
+  isForeignKeyViolation,
+} from './mariadb.errors';
 import { MariaDBRepository, type Row, type Tx } from './mariadb.repository';
 
 type DatabasePurchaseRequestRow = {
@@ -41,15 +59,48 @@ type DatabasePurchaseRequestRow = {
   updated_at: Date;
 };
 
-type DatabasePurchaseRequestListRow = DatabasePurchaseRequestRow & {
+type DatabaseRequestComponentRow = {
+  id: string;
+  component_id: number;
+  activity_id: number;
+  funding_source_id: number;
+  estimated_amount: string | number;
+  final_amount: string | number;
+  leader_id: string;
+  leader_status: ComponentLeaderStatus;
+  leader_decided_at: Date | null;
+};
+
+type DatabaseInboxRow = {
+  id: string;
+  request_number: number;
+  status: RequestStatus;
+  purchase_type: PurchaseType | null;
+  justification: string;
+  total_amount_estimated: string | number;
+  total_amount_final: string | number;
+  created_at: Date;
+  updated_at: Date;
+  requester_id: string;
   requester_title: string | null;
   requester_first_name: string;
   requester_last_name: string;
   requester_email: string;
+  department_id: number;
   department_name: string;
-  is_requester: number | boolean;
+  status_group: StatusGroup;
+  isos: unknown;
   components: unknown;
   product_items: unknown;
+  history: unknown;
+};
+
+type VisibilitySql = {
+  // Condición del WHERE sobre pr (puede usar me.uid)
+  where: string;
+  params: unknown[];
+  // Condición extra sobre rc para las filas que se regresan
+  componentsFilter: string;
 };
 
 @Injectable()
@@ -63,8 +114,6 @@ export class PurchaseRequestRepository
     }
 
     return this.withTransaction(async (tx) => {
-      await this.validateIsosExist(tx, request.isoIds);
-
       const id = await this.insertPurchaseRequest(tx, request);
 
       await this.insertPurchaseRequestIsos(tx, id, request.isoIds);
@@ -73,105 +122,107 @@ export class PurchaseRequestRepository
         await this.insertRequestComponent(tx, id, component);
       }
 
-      for (let i = 0; i < request.productItems.length; i++) {
-        await this.insertProductItem(tx, id, request.productItems[i], i);
+      // position conserva el orden en que el solicitante capturó los productos
+      for (const [position, item] of request.productItems.entries()) {
+        await this.insertProductItem(tx, id, item, position);
       }
 
       return id;
     });
   }
 
-  async findViewerByClerkId(
-    clerkId: string,
-  ): Promise<PurchaseRequestViewer | null> {
+  // Un solo recorrido: el total de la bandeja y cuántas hay en cada etapa.
+  async summarizeInbox(query: SummarizeInboxRepoQuery): Promise<InboxSummary> {
+    const visibility = this.buildVisibilitySql(query.visibility);
+    const groups = Object.entries(query.groups) as [
+      StatusGroup,
+      StatusGroupCondition,
+    ][];
+
+    const selects: string[] = [];
+    const selectParams: unknown[] = [];
+    for (const [name, condition] of groups) {
+      const group = this.buildStatusGroupSql(condition);
+      selects.push(
+        `SUM(CASE WHEN ${group.sql} THEN 1 ELSE 0 END) AS \`${name}\``,
+      );
+      selectParams.push(...group.params);
+    }
+
+    // Los parámetros del SELECT van antes que el de me.uid (FROM) y los del WHERE.
     const rows = await this.execute(
-      `SELECT u.id AS user_id,
-         (SELECT JSON_ARRAYAGG(r.code)
-          FROM user_roles ur
-          INNER JOIN roles r ON r.id = ur.role_id
-          WHERE ur.user_id = u.id) AS role_codes
-       FROM users u
-       WHERE u.clerk_id = ? AND u.is_active = TRUE
-       LIMIT 1`,
-      [clerkId],
+      `SELECT COUNT(*) AS total, ${selects.join(', ')}
+       FROM purchase_requests pr
+       CROSS JOIN (SELECT ? AS uid) me
+       WHERE ${visibility.where}`,
+      [...selectParams, query.viewerId, ...visibility.params],
     );
 
-    const row = rows[0];
-    if (!row) return null;
-
+    const row = rows[0] ?? {};
     return {
-      userId: String(row.user_id),
-      roleCodes: this.parseStringArray(row.role_codes),
+      total: Number(row.total ?? 0),
+      byGroup: Object.fromEntries(
+        groups.map(([name]) => [name, Number(row[name] ?? 0)]),
+      ) as Record<StatusGroup, number>,
     };
   }
 
-  async existsById(id: PurchaseRequestID): Promise<boolean> {
-    const rows = await this.execute(
-      `SELECT 1 FROM purchase_requests WHERE id = ? LIMIT 1`,
-      [id],
-    );
-    return rows.length > 0;
-  }
-
-  async findDetailById(
-    query: FindPurchaseRequestDetailRepoQuery,
-  ): Promise<PurchaseRequestListItem | null> {
-    const { whereScope, componentsFilter } = this.buildScopeFilter(query.scope);
-
-    const rows = (await this.execute(
-      `${this.buildDetailSelectSql(componentsFilter)}
-       WHERE pr.id = ?
-         AND ${whereScope}
-       LIMIT 1`,
-      [query.userId, query.id],
-    )) as DatabasePurchaseRequestListRow[];
-
-    const row = rows[0];
-    return row ? this.mapRowToListItem(row) : null;
-  }
-
-  async listPaginated(
-    query: ListPurchaseRequestsRepoQuery,
+  async listInbox(
+    query: ListInboxRepoQuery,
   ): Promise<PaginatedPurchaseRequests> {
     const offset = (query.page - 1) * query.limit;
-    const { whereScope, componentsFilter } = this.buildScopeFilter(query.scope);
+    const visibility = this.buildVisibilitySql(
+      query.visibility,
+      query.leaderStatus,
+    );
 
-    const extraConditions: string[] = [];
-    const baseParams: unknown[] = [query.userId];
+    const conditions = [visibility.where];
+    const params: unknown[] = [...visibility.params];
 
     if (query.status) {
-      extraConditions.push('AND pr.status = ?');
-      baseParams.push(query.status);
+      conditions.push('pr.status = ?');
+      params.push(query.status);
+    }
+
+    if (query.statusGroup) {
+      const group = this.buildStatusGroupSql(query.statusGroup);
+      conditions.push(group.sql);
+      params.push(...group.params);
     }
 
     if (query.search) {
-      extraConditions.push('AND CAST(pr.request_number AS CHAR) LIKE ?');
-      baseParams.push(`%${query.search}%`);
+      conditions.push('CAST(pr.request_number AS CHAR) LIKE ?');
+      params.push(`%${query.search}%`);
     }
 
-    const extraSql = extraConditions.join(' ');
+    const whereSql = conditions.join(' AND ');
 
     const countRows = await this.execute(
       `SELECT COUNT(*) AS total
        FROM purchase_requests pr
        CROSS JOIN (SELECT ? AS uid) me
-       WHERE ${whereScope} ${extraSql}`,
-      baseParams,
+       WHERE ${whereSql}`,
+      [query.viewerId, ...params],
     );
 
     const total = Number(countRows[0]?.total ?? 0);
     const totalPages = total === 0 ? 0 : Math.ceil(total / query.limit);
 
+    const select = this.buildViewSelectSql(
+      visibility.componentsFilter,
+      query.stages,
+      query.viewerId,
+    );
     const rows = (await this.execute(
-      `${this.buildDetailSelectSql(componentsFilter)}
-       WHERE ${whereScope} ${extraSql}
+      `${select.sql}
+       WHERE ${whereSql}
        ORDER BY pr.request_number DESC
        LIMIT ? OFFSET ?`,
-      [...baseParams, query.limit, offset],
-    )) as DatabasePurchaseRequestListRow[];
+      [...select.params, ...params, query.limit, offset],
+    )) as DatabaseInboxRow[];
 
     return {
-      data: rows.map((row) => this.mapRowToListItem(row)),
+      data: rows.map((row) => this.mapRowToView(row)),
       meta: {
         page: query.page,
         limit: query.limit,
@@ -181,150 +232,310 @@ export class PurchaseRequestRepository
     };
   }
 
-  async search(id: PurchaseRequestID): Promise<PurchaseRequest | null> {
-    return await this.searchOne(
-      `SELECT pr.*,
-         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
-          FROM purchase_request_isos pri
-          WHERE pri.purchase_request_id = pr.id) AS iso_ids
-       FROM purchase_requests pr
-       WHERE pr.id = ?
-       LIMIT 1`,
-      [id],
+  async findInboxItem(
+    query: FindInboxItemRepoQuery,
+  ): Promise<PurchaseRequestView | null> {
+    const visibility = this.buildVisibilitySql(query.visibility);
+
+    const select = this.buildViewSelectSql(
+      visibility.componentsFilter,
+      query.stages,
+      query.viewerId,
     );
+    const rows = (await this.execute(
+      `${select.sql}
+       WHERE pr.id = ? AND ${visibility.where}
+       LIMIT 1`,
+      [...select.params, query.id, ...visibility.params],
+    )) as DatabaseInboxRow[];
+
+    const row = rows[0];
+    return row ? this.mapRowToView(row) : null;
   }
 
-  async searchAll(): Promise<PurchaseRequest[]> {
-    return await this.searchMany(
-      `SELECT pr.*,
-         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
-          FROM purchase_request_isos pri
-          WHERE pri.purchase_request_id = pr.id) AS iso_ids
-       FROM purchase_requests pr
-       ORDER BY pr.request_number DESC`,
-    );
+  // El FOR UPDATE sobre la solicitud serializa las decisiones concurrentes
+  // (p. ej. dos líderes aprobando al mismo tiempo).
+  async updateWithLock(
+    id: PurchaseRequestID,
+    change: (request: PurchaseRequest) => HistoryEntry,
+  ): Promise<boolean> {
+    return this.withTransaction(async (tx) => {
+      const requestRows = await this.executeOn(
+        tx,
+        `SELECT pr.*, NULL AS iso_ids
+         FROM purchase_requests pr
+         WHERE pr.id = ?
+         FOR UPDATE`,
+        [id],
+      );
+      if (!requestRows[0]) return false;
+
+      const componentRows = (await this.executeOn(
+        tx,
+        `SELECT id, component_id, activity_id, funding_source_id,
+                estimated_amount, final_amount,
+                leader_id, leader_status, leader_decided_at
+         FROM request_components
+         WHERE purchase_request_id = ?
+         FOR UPDATE`,
+        [id],
+      )) as DatabaseRequestComponentRow[];
+
+      // Solo se carga lo que las decisiones necesitan: cabecera y filas.
+      const request = PurchaseRequest.rehydrate({
+        ...this.toDomainProps(requestRows[0] as DatabasePurchaseRequestRow),
+        requestComponents: componentRows.map((row) =>
+          RequestComponent.rehydrate({
+            id: row.id,
+            purchaseRequestId: id,
+            componentId: Number(row.component_id),
+            activityId: Number(row.activity_id),
+            fundingSourceId: Number(row.funding_source_id),
+            estimatedAmount: Number(row.estimated_amount),
+            finalAmount: Number(row.final_amount),
+            leaderId: row.leader_id,
+            leaderStatus: row.leader_status,
+            leaderDecidedAt: row.leader_decided_at,
+          }),
+        ),
+      });
+
+      const entry = change(request);
+
+      await this.executeOn(
+        tx,
+        `UPDATE purchase_requests SET status = ? WHERE id = ?`,
+        [request.status, id],
+      );
+
+      for (const row of request.requestComponents) {
+        await this.executeOn(
+          tx,
+          `UPDATE request_components
+           SET leader_status = ?, leader_decided_at = ?
+           WHERE id = ?`,
+          [row.leaderStatus, row.leaderDecidedAt, row.id],
+        );
+      }
+
+      await this.executeOn(
+        tx,
+        `INSERT INTO purchase_request_history
+           (purchase_request_id, request_component_id, status_before, status_after,
+            decision, user_id, justification)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          entry.requestComponentId ?? null,
+          entry.statusBefore,
+          entry.statusAfter,
+          entry.decision,
+          entry.userId,
+          entry.justification?.trim() || null,
+        ],
+      );
+
+      return true;
+    });
   }
 
   // ==========================================
   // Query Builders
   // ==========================================
 
-  private buildScopeFilter(scope?: PurchaseRequestScope): {
-    whereScope: string;
-    componentsFilter: string;
+  // Condición booleana sobre pr para una etapa (pestaña): sus estados, más SOLICITADO
+  // según si algún líder ya decidió, o si a quien consulta (me.uid) le queda una fila pendiente.
+  private buildStatusGroupSql(group: StatusGroupCondition): {
+    sql: string;
+    params: unknown[];
   } {
-    // ACTIVO (Primera entrega): Filtros por vista activa y visibilidad por rol.
-    // FUTURO (Fase 2 - Aprobación multi-líder): Agregar aquí filtro opcional por rc.leader_status (ej. PENDIENTE).
-    // FUTURO (Escalabilidad): Si purchase_requests crece a miles de filas, reescribir el scope combinado (default) con UNION en lugar de OR EXISTS.
-    switch (scope) {
-      case 'all':
-        return {
-          whereScope: '1 = 1',
-          componentsFilter: '',
-        };
+    const parts: string[] = [];
+    const params: unknown[] = [];
+
+    if (group.statuses.length > 0) {
+      parts.push(`pr.status IN (${this.placeholders([...group.statuses])})`);
+      params.push(...group.statuses);
+    }
+
+    if (group.solicitado) {
+      const anyDecided = `EXISTS (
+        SELECT 1 FROM request_components drc
+        WHERE drc.purchase_request_id = pr.id AND drc.leader_status <> 'PENDIENTE'
+      )`;
+      const ownPending = `EXISTS (
+        SELECT 1 FROM request_components orc
+        WHERE orc.purchase_request_id = pr.id
+          AND orc.leader_id = me.uid AND orc.leader_status = 'PENDIENTE'
+      )`;
+      const condition = {
+        sin_decisiones: `NOT ${anyDecided}`,
+        con_decisiones: anyDecided,
+        fila_propia_pendiente: ownPending,
+        sin_fila_propia_pendiente: `NOT ${ownPending}`,
+      }[group.solicitado];
+      parts.push(`(pr.status = 'SOLICITADO' AND ${condition})`);
+    }
+
+    return { sql: `(${parts.join(' OR ') || '1 = 0'})`, params };
+  }
+
+  private buildVisibilitySql(
+    visibility: InboxVisibility,
+    leaderStatus?: ComponentLeaderStatus,
+  ): VisibilitySql {
+    switch (visibility.kind) {
       case 'requester':
         return {
-          whereScope: 'pr.requested_by = me.uid',
+          where: 'pr.requested_by = me.uid',
+          params: [],
           componentsFilter: '',
         };
       case 'leader':
+        // El líder solo recibe sus filas: no ve cuánto se le pide a los demás.
         return {
-          whereScope: `EXISTS (
+          where: `EXISTS (
             SELECT 1
-            FROM request_components rc
-            INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
-            WHERE rc.purchase_request_id = pr.id
-              AND ua.user_id = me.uid
+            FROM request_components lrc
+            WHERE lrc.purchase_request_id = pr.id
+              AND lrc.leader_id = me.uid
+              ${leaderStatus ? 'AND lrc.leader_status = ?' : ''}
           )`,
-          componentsFilter: `AND EXISTS (
-            SELECT 1
-            FROM user_activities ua
-            WHERE ua.activity_id = rc.activity_id
-              AND ua.user_id = me.uid
-          )`,
+          params: leaderStatus ? [leaderStatus] : [],
+          componentsFilter: 'AND rc.leader_id = me.uid',
         };
-      default:
+      case 'statuses':
         return {
-          whereScope: `(pr.requested_by = me.uid OR EXISTS (
-            SELECT 1
-            FROM request_components rc
-            INNER JOIN user_activities ua ON ua.activity_id = rc.activity_id
-            WHERE rc.purchase_request_id = pr.id
-              AND ua.user_id = me.uid
-          ))`,
-          componentsFilter: `AND (pr.requested_by = me.uid OR EXISTS (
-            SELECT 1
-            FROM user_activities ua
-            WHERE ua.activity_id = rc.activity_id
-              AND ua.user_id = me.uid
-          ))`,
+          where: `pr.status IN (${this.placeholders([...visibility.statuses])})`,
+          params: [...visibility.statuses],
+          componentsFilter: '',
         };
     }
   }
 
-  private buildDetailSelectSql(componentsFilter: string): string {
-    return `SELECT pr.id, pr.request_number, pr.requested_by, pr.status, pr.purchase_type,
+  // statusGroup se calcula con las etapas de la bandeja (CASE en el orden de las etapas).
+  // `params` ya trae, en orden, los del CASE y el de me.uid (FROM): van antes que los del WHERE.
+  private buildViewSelectSql(
+    componentsFilter: string,
+    stages: Record<StatusGroup, StatusGroupCondition>,
+    viewerId: string,
+  ): { sql: string; params: unknown[] } {
+    const whens: string[] = [];
+    const params: unknown[] = [];
+    for (const [name, condition] of Object.entries(stages) as [
+      StatusGroup,
+      StatusGroupCondition,
+    ][]) {
+      const group = this.buildStatusGroupSql(condition);
+      whens.push(`WHEN ${group.sql} THEN '${name}'`);
+      params.push(...group.params);
+    }
+
+    return {
+      params: [...params, viewerId],
+      sql: `SELECT pr.id, pr.request_number, pr.status, pr.purchase_type,
               pr.justification, pr.total_amount_estimated, pr.total_amount_final,
               pr.created_at, pr.updated_at,
+         u.id AS requester_id,
          u.title AS requester_title,
          u.first_name AS requester_first_name,
          u.last_name AS requester_last_name,
          u.email AS requester_email,
+         d.id AS department_id,
          d.name AS department_name,
-         (pr.requested_by = me.uid) AS is_requester,
-         (SELECT JSON_ARRAYAGG(pri.iso_id ORDER BY pri.iso_id)
+         CASE ${whens.join(' ')} ELSE 'en_proceso' END AS status_group,
+         (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', i.id, 'name', i.name) ORDER BY i.id)
           FROM purchase_request_isos pri
-          WHERE pri.purchase_request_id = pr.id) AS iso_ids,
+          INNER JOIN isos i ON i.id = pri.iso_id
+          WHERE pri.purchase_request_id = pr.id) AS isos,
          (SELECT JSON_ARRAYAGG(JSON_OBJECT(
                    'id', rc.id,
-                   'componentId', rc.component_id,
-                   'activityId', rc.activity_id,
-                   'fundingSourceId', rc.funding_source_id,
+                   'componentId', c.id, 'componentCode', c.code, 'componentName', c.name,
+                   'activityId', a.id, 'activityCode', a.code, 'activityName', a.name,
+                   'administrativeUnitId', au.id, 'administrativeUnitCode', au.code,
+                   'administrativeUnitName', au.name,
+                   'fundingSourceId', fs.id, 'fundingSourceCode', fs.code,
+                   'fundingSourceName', fs.name,
                    'estimatedAmount', rc.estimated_amount,
-                   'finalAmount', rc.final_amount))
+                   'finalAmount', rc.final_amount,
+                   'leaderId', lu.id, 'leaderTitle', lu.title,
+                   'leaderFirstName', lu.first_name, 'leaderLastName', lu.last_name,
+                   'leaderStatus', rc.leader_status,
+                   'leaderDecidedAt', rc.leader_decided_at)
+                 ORDER BY c.code, a.code, fs.code)
           FROM request_components rc
+          INNER JOIN components c ON c.id = rc.component_id
+          INNER JOIN activities a ON a.id = rc.activity_id
+          INNER JOIN administrative_units au ON au.id = c.administrative_unit_id
+          INNER JOIN funding_sources fs ON fs.id = rc.funding_source_id
+          INNER JOIN users lu ON lu.id = rc.leader_id
           WHERE rc.purchase_request_id = pr.id
             ${componentsFilter}) AS components,
          (SELECT JSON_ARRAYAGG(JSON_OBJECT(
                    'id', pi.id,
-                   'budgetItemId', pi.budget_item_id,
-                   'measurementUnitId', pi.measurement_unit_id,
+                   'budgetItemId', bi.id, 'budgetItemCode', bi.code, 'budgetItemName', bi.name,
+                   'measurementUnitId', mu.id, 'measurementUnitName', mu.name,
                    'quantity', pi.quantity,
                    'description', pi.description,
                    'estimatedAmount', pi.estimated_amount,
-                   'finalAmount', pi.final_amount))
+                   'finalAmount', pi.final_amount)
+                 ORDER BY pi.position)
           FROM product_items pi
-          WHERE pi.purchase_request_id = pr.id) AS product_items
+          INNER JOIN budget_items bi ON bi.id = pi.budget_item_id
+          INNER JOIN measurement_units mu ON mu.id = pi.measurement_unit_id
+          WHERE pi.purchase_request_id = pr.id) AS product_items,
+         (SELECT JSON_ARRAYAGG(JSON_OBJECT(
+                   'id', h.id,
+                   'decision', h.decision,
+                   'statusBefore', h.status_before,
+                   'statusAfter', h.status_after,
+                   'justification', h.justification,
+                   'signerName', h.signer_name,
+                   'userId', hu.id, 'userTitle', hu.title,
+                   'userFirstName', hu.first_name, 'userLastName', hu.last_name,
+                   'requestComponentId', h.request_component_id,
+                   'activityId', ha.id, 'activityCode', ha.code, 'activityName', ha.name,
+                   'createdAt', h.created_at)
+                 ORDER BY h.created_at)
+          FROM purchase_request_history h
+          INNER JOIN users hu ON hu.id = h.user_id
+          LEFT JOIN request_components hrc ON hrc.id = h.request_component_id
+          LEFT JOIN activities ha ON ha.id = hrc.activity_id
+          WHERE h.purchase_request_id = pr.id) AS history
        FROM purchase_requests pr
        INNER JOIN users u ON u.id = pr.requested_by
        INNER JOIN departments d ON d.id = u.department_id
-       CROSS JOIN (SELECT ? AS uid) me`;
+       CROSS JOIN (SELECT ? AS uid) me`,
+    };
   }
 
-  private mapRowToListItem(
-    row: DatabasePurchaseRequestListRow,
-  ): PurchaseRequestListItem {
+  private mapRowToView(row: DatabaseInboxRow): PurchaseRequestView {
     return {
       id: row.id,
       requestNumber: Number(row.request_number),
-      requestedBy: row.requested_by,
-      requester: {
-        id: row.requested_by,
-        title: row.requester_title ?? null,
-        firstName: row.requester_first_name,
-        lastName: row.requester_last_name,
-        email: row.requester_email,
-        departmentName: row.department_name,
-      },
       status: row.status,
+      statusGroup: row.status_group,
       purchaseType: row.purchase_type ?? null,
       justification: row.justification,
       totalAmountEstimated: Number(row.total_amount_estimated),
       totalAmountFinal: Number(row.total_amount_final),
-      isoIds: this.parseIds(row.iso_ids),
+      requester: {
+        id: row.requester_id,
+        title: row.requester_title ?? null,
+        firstName: row.requester_first_name,
+        lastName: row.requester_last_name,
+        email: row.requester_email,
+        department: {
+          id: Number(row.department_id),
+          name: row.department_name,
+        },
+      },
+      isos: this.parseJsonArray(row.isos).map((item) => {
+        const i = item as Record<string, unknown>;
+        return { id: Number(i.id), name: String(i.name) };
+      }),
       components: this.parseComponents(row.components),
       productItems: this.parseProductItems(row.product_items),
-      isRequester: Boolean(row.is_requester),
+      history: this.parseHistory(row.history),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -333,21 +544,6 @@ export class PurchaseRequestRepository
   // ==========================================
   // Validations & Inserts
   // ==========================================
-
-  private async validateIsosExist(tx: Tx, isoIds: number[]): Promise<void> {
-    const isoPlaceholders = this.placeholders(isoIds);
-    const isoRows = await this.executeOn(
-      tx,
-      `SELECT id FROM isos WHERE id IN (${isoPlaceholders})`,
-      isoIds,
-    );
-
-    if (isoRows.length !== isoIds.length) {
-      const foundIds = new Set(isoRows.map((r) => Number(r.id)));
-      const missing = isoIds.filter((id) => !foundIds.has(id));
-      throw new PurchaseRequestIsosNotFoundError(missing);
-    }
-  }
 
   private async insertPurchaseRequest(
     tx: Tx,
@@ -392,33 +588,45 @@ export class PurchaseRequestRepository
     purchaseRequestId: PurchaseRequestID,
     isoIds: number[],
   ): Promise<void> {
+    // Los duplicados ya los rechaza el dominio; que la ISO exista lo garantiza la FK.
     for (const isoId of isoIds) {
-      await this.executeOn(
-        tx,
-        `INSERT IGNORE INTO purchase_request_isos (purchase_request_id, iso_id) VALUES (?, ?)`,
-        [purchaseRequestId, isoId],
-      );
+      try {
+        await this.executeOn(
+          tx,
+          `INSERT INTO purchase_request_isos (purchase_request_id, iso_id) VALUES (?, ?)`,
+          [purchaseRequestId, isoId],
+        );
+      } catch (error) {
+        if (
+          isForeignKeyViolation(error) &&
+          foreignKeyColumn(error) === 'iso_id'
+        ) {
+          throw new PurchaseRequestIsosNotFoundError([isoId]);
+        }
+        throw error;
+      }
     }
   }
 
+  // El líder de la fila se fija aquí con el líder activo de la actividad.
+  // Si la actividad no tiene líder activo, el SELECT no regresa filas y no se inserta nada.
   private async insertRequestComponent(
     tx: Tx,
     purchaseRequestId: PurchaseRequestID,
-    component: {
-      componentId: number;
-      activityId: number;
-      fundingSourceId: number;
-      estimatedAmount: number;
-      finalAmount: number;
-    },
+    component: RequestComponent,
   ): Promise<void> {
+    let result: unknown;
+
     try {
-      await this.executeOn(
+      result = await this.executeOn(
         tx,
         `INSERT INTO request_components
            (purchase_request_id, component_id, activity_id, funding_source_id,
-            estimated_amount, final_amount)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+            estimated_amount, final_amount, leader_id)
+         SELECT ?, ?, ?, ?, ?, ?, ua.user_id
+         FROM user_activities ua
+         INNER JOIN users u ON u.id = ua.user_id AND u.is_active = TRUE
+         WHERE ua.activity_id = ?`,
         [
           purchaseRequestId,
           component.componentId,
@@ -426,31 +634,41 @@ export class PurchaseRequestRepository
           component.fundingSourceId,
           component.estimatedAmount,
           component.finalAmount,
+          component.activityId,
         ],
       );
     } catch (error) {
+      if (isDuplicateEntry(error)) {
+        throw new DuplicatedRequestComponentError(
+          component.componentId,
+          component.activityId,
+          component.fundingSourceId,
+        );
+      }
       if (isForeignKeyViolation(error)) {
-        const col = foreignKeyColumn(error);
-        if (col === 'component_id') {
-          throw new ComponentReferenceNotFoundError(
-            'component',
-            component.componentId,
-          );
-        }
-        if (col === 'activity_id') {
-          throw new ComponentReferenceNotFoundError(
-            'activity',
-            component.activityId,
-          );
-        }
-        if (col === 'funding_source_id') {
-          throw new ComponentReferenceNotFoundError(
-            'fundingSource',
-            component.fundingSourceId,
-          );
+        switch (foreignKeyConstraint(error)) {
+          case 'fk_rc_component':
+            throw new ComponentReferenceNotFoundError(
+              'component',
+              component.componentId,
+            );
+          case 'fk_rc_activity_component':
+            throw new ActivityNotInComponentError(
+              component.activityId,
+              component.componentId,
+            );
+          case 'fk_rc_funding_source':
+            throw new ComponentReferenceNotFoundError(
+              'fundingSource',
+              component.fundingSourceId,
+            );
         }
       }
       throw error;
+    }
+
+    if ((result as { affectedRows: number }).affectedRows === 0) {
+      throw new ActivityWithoutLeaderError(component.activityId);
     }
   }
 
@@ -465,15 +683,15 @@ export class PurchaseRequestRepository
       estimatedAmount: number;
       finalAmount: number;
     },
-    _index: number,
+    position: number,
   ): Promise<void> {
     try {
       await this.executeOn(
         tx,
         `INSERT INTO product_items
            (purchase_request_id, budget_item_id, measurement_unit_id,
-            quantity, description, estimated_amount, final_amount)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            quantity, description, estimated_amount, final_amount, position)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           purchaseRequestId,
           item.budgetItemId,
@@ -482,6 +700,7 @@ export class PurchaseRequestRepository
           item.description,
           item.estimatedAmount,
           item.finalAmount,
+          position,
         ],
       );
     } catch (error) {
@@ -518,8 +737,10 @@ export class PurchaseRequestRepository
     return this.parseJsonArray(value).map(Number);
   }
 
-  private parseStringArray(value: unknown): string[] {
-    return this.parseJsonArray(value).map(String);
+  // Dentro de JSON_OBJECT las fechas llegan como 'YYYY-MM-DD HH:MM:SS' (hora local, igual que el driver).
+  private parseJsonDate(value: unknown): Date | null {
+    if (typeof value !== 'string') return null;
+    return new Date(value.replace(' ', 'T'));
   }
 
   private parseComponents(value: unknown): PurchaseRequestComponentView[] {
@@ -527,11 +748,69 @@ export class PurchaseRequestRepository
       const c = item as Record<string, unknown>;
       return {
         id: String(c.id),
-        componentId: Number(c.componentId),
-        activityId: Number(c.activityId),
-        fundingSourceId: Number(c.fundingSourceId),
+        component: {
+          id: Number(c.componentId),
+          code: String(c.componentCode),
+          name: String(c.componentName),
+        },
+        activity: {
+          id: Number(c.activityId),
+          code: String(c.activityCode),
+          name: String(c.activityName),
+        },
+        administrativeUnit: {
+          id: Number(c.administrativeUnitId),
+          code: String(c.administrativeUnitCode),
+          name: String(c.administrativeUnitName),
+        },
+        fundingSource: {
+          id: Number(c.fundingSourceId),
+          code: String(c.fundingSourceCode),
+          name: String(c.fundingSourceName),
+        },
         estimatedAmount: Number(c.estimatedAmount),
         finalAmount: Number(c.finalAmount),
+        leader: {
+          id: String(c.leaderId),
+          title: typeof c.leaderTitle === 'string' ? c.leaderTitle : null,
+          firstName: String(c.leaderFirstName),
+          lastName: String(c.leaderLastName),
+        },
+        leaderStatus: c.leaderStatus as ComponentLeaderStatus,
+        leaderDecidedAt: this.parseJsonDate(c.leaderDecidedAt),
+      };
+    });
+  }
+
+  private parseHistory(value: unknown): PurchaseRequestHistoryView[] {
+    const asString = (v: unknown): string | null =>
+      typeof v === 'string' ? v : null;
+
+    return this.parseJsonArray(value).map((item) => {
+      const h = item as Record<string, unknown>;
+      return {
+        id: String(h.id),
+        decision: h.decision as PurchaseRequestHistoryView['decision'],
+        statusBefore: h.statusBefore as RequestStatus,
+        statusAfter: asString(h.statusAfter) as RequestStatus | null,
+        justification: asString(h.justification),
+        user: {
+          id: String(h.userId),
+          title: asString(h.userTitle),
+          firstName: String(h.userFirstName),
+          lastName: String(h.userLastName),
+        },
+        signerName: asString(h.signerName),
+        requestComponentId: asString(h.requestComponentId),
+        activity:
+          h.activityId === null || h.activityId === undefined
+            ? null
+            : {
+                id: Number(h.activityId),
+                code: String(h.activityCode),
+                name: String(h.activityName),
+              },
+        createdAt: this.parseJsonDate(h.createdAt) as Date,
       };
     });
   }
@@ -541,8 +820,15 @@ export class PurchaseRequestRepository
       const p = item as Record<string, unknown>;
       return {
         id: String(p.id),
-        budgetItemId: Number(p.budgetItemId),
-        measurementUnitId: Number(p.measurementUnitId),
+        budgetItem: {
+          id: Number(p.budgetItemId),
+          code: String(p.budgetItemCode),
+          name: String(p.budgetItemName),
+        },
+        measurementUnit: {
+          id: Number(p.measurementUnitId),
+          name: String(p.measurementUnitName),
+        },
         quantity: Number(p.quantity),
         description: String(p.description),
         estimatedAmount: Number(p.estimatedAmount),
@@ -552,7 +838,11 @@ export class PurchaseRequestRepository
   }
 
   protected toDomain(row: DatabasePurchaseRequestRow): PurchaseRequest {
-    return PurchaseRequest.rehydrate({
+    return PurchaseRequest.rehydrate(this.toDomainProps(row));
+  }
+
+  private toDomainProps(row: DatabasePurchaseRequestRow): PurchaseRequestProps {
+    return {
       id: row.id,
       requestNumber: row.request_number,
       requestedBy: row.requested_by,
@@ -564,6 +854,6 @@ export class PurchaseRequestRepository
       totalAmountFinal: Number(row.total_amount_final),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    });
+    };
   }
 }
