@@ -135,9 +135,17 @@ CREATE TABLE if not exists purchase_requests (
     purchase_type ENUM('COMPRA_MOSTRADOR', 'COMPRA_ADJ_DIRECTA', 'COMPRA_LICITACION', 'COMPRA_INVITACION') NULL,
     justification TEXT NOT NULL,
     total_amount_estimated DECIMAL(12,2) NOT NULL DEFAULT 0, 
+    final_subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    final_iva DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    final_retention_iva DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    final_retention_isr DECIMAL(12,2) NOT NULL DEFAULT 0.00,
     total_amount_final DECIMAL(12,2) NOT NULL DEFAULT 0,     
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT chk_pr_final_subtotal CHECK (final_subtotal >= 0),
+    CONSTRAINT chk_pr_final_iva CHECK (final_iva >= 0),
+    CONSTRAINT chk_pr_final_retention_iva CHECK (final_retention_iva >= 0),
+    CONSTRAINT chk_pr_final_retention_isr CHECK (final_retention_isr >= 0),
     FOREIGN KEY (requested_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -223,8 +231,103 @@ CREATE TABLE IF NOT EXISTS purchase_request_history (
     FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS providers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    rfc VARCHAR(13) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    phone VARCHAR(25) NULL,
+    email VARCHAR(254) NULL,
+    bank VARCHAR(100) NULL,
+    clabe VARCHAR(25) NULL,
+    tax_address JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_providers_name (name),
+    KEY idx_providers_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comparative_charts (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    purchase_request_id CHAR(36) NOT NULL UNIQUE,
+    chart_date DATE NOT NULL,
+    awarded_provider_id INT UNSIGNED NOT NULL,
+    highest_score TINYINT UNSIGNED NOT NULL,
+    awarded_justification TEXT NULL,
+    delivery_date DATE NULL,
+    created_by CHAR(36) NOT NULL,
+    updated_by CHAR(36) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_cc_awarded_provider (awarded_provider_id),
+    KEY idx_cc_created_by (created_by),
+    KEY idx_cc_updated_by (updated_by),
+    CONSTRAINT chk_cc_highest_score CHECK (highest_score BETWEEN 0 AND 45),
+    CONSTRAINT fk_cc_purchase_request FOREIGN KEY (purchase_request_id) REFERENCES purchase_requests(id) ON DELETE CASCADE,
+    CONSTRAINT fk_cc_awarded_provider FOREIGN KEY (awarded_provider_id) REFERENCES providers(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_cc_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_cc_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comparative_chart_providers (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    comparative_chart_id CHAR(36) NOT NULL,
+    provider_id INT UNSIGNED NOT NULL,
+    position TINYINT UNSIGNED NOT NULL,
+    subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    iva DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    retention_iva DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    retention_isr DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    total_score TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    UNIQUE KEY uq_ccp_chart_provider (comparative_chart_id, provider_id),
+    UNIQUE KEY uq_ccp_chart_position (comparative_chart_id, position),
+    KEY idx_ccp_provider (provider_id),
+    CONSTRAINT chk_ccp_position CHECK (position BETWEEN 1 AND 3),
+    CONSTRAINT chk_ccp_subtotal CHECK (subtotal >= 0),
+    CONSTRAINT chk_ccp_iva CHECK (iva >= 0),
+    CONSTRAINT chk_ccp_retention_iva CHECK (retention_iva >= 0),
+    CONSTRAINT chk_ccp_retention_isr CHECK (retention_isr >= 0),
+    CONSTRAINT chk_ccp_total CHECK (total >= 0),
+    CONSTRAINT chk_ccp_total_score CHECK (total_score BETWEEN 0 AND 45),
+    CONSTRAINT fk_ccp_comparative_chart FOREIGN KEY (comparative_chart_id) REFERENCES comparative_charts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ccp_provider FOREIGN KEY (provider_id) REFERENCES providers(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comparative_chart_items (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    comparative_chart_provider_id CHAR(36) NOT NULL,
+    product_item_id CHAR(36) NOT NULL,
+    unit_cost DECIMAL(12,2) NULL,
+    total_cost DECIMAL(12,2) NULL,
+    UNIQUE KEY uq_cci_chart_provider_product (comparative_chart_provider_id, product_item_id),
+    KEY idx_cci_product_item (product_item_id),
+    CONSTRAINT chk_cci_unit_cost CHECK (unit_cost IS NULL OR unit_cost >= 0),
+    CONSTRAINT chk_cci_total_cost CHECK (total_cost IS NULL OR total_cost >= 0),
+    CONSTRAINT chk_cci_quoted_pair CHECK ((unit_cost IS NULL AND total_cost IS NULL) OR (unit_cost IS NOT NULL AND total_cost IS NOT NULL)),
+    CONSTRAINT fk_cci_chart_provider FOREIGN KEY (comparative_chart_provider_id) REFERENCES comparative_chart_providers(id) ON DELETE CASCADE,
+    CONSTRAINT fk_cci_product_item FOREIGN KEY (product_item_id) REFERENCES product_items(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comparative_chart_evaluations (
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    comparative_chart_provider_id CHAR(36) NOT NULL,
+    criterion ENUM('PRECIO', 'TIEMPO_ENTREGA', 'TIEMPO_RESPUESTA', 'FINANCIAMIENTO', 'GARANTIA') NOT NULL,
+    score TINYINT UNSIGNED NOT NULL,
+    observation VARCHAR(500) NOT NULL,
+    UNIQUE KEY uq_cce_chart_provider_criterion (comparative_chart_provider_id, criterion),
+    CONSTRAINT chk_cce_score CHECK (score BETWEEN 0 AND 9),
+    CONSTRAINT chk_cce_observation CHECK (TRIM(observation) <> ''),
+    CONSTRAINT fk_cce_chart_provider FOREIGN KEY (comparative_chart_provider_id) REFERENCES comparative_chart_providers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- migrate:down
 
+DROP TABLE IF EXISTS comparative_chart_evaluations;
+DROP TABLE IF EXISTS comparative_chart_items;
+DROP TABLE IF EXISTS comparative_chart_providers;
+DROP TABLE IF EXISTS comparative_charts;
+DROP TABLE IF EXISTS providers;
 DROP TABLE IF EXISTS purchase_request_history;
 DROP TABLE IF EXISTS product_items;
 DROP TABLE IF EXISTS request_components;
