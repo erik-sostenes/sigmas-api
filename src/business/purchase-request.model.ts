@@ -49,13 +49,21 @@ export type PurchaseType = (typeof PURCHASE_TYPES)[number];
 
 export type PurchaseRequestProps = {
   id?: PurchaseRequestID;
+  parentRequestId?: string | null;
   requestNumber?: number;
+  segmentNumber?: number;
+  folio?: string;
   requestedBy: string;
   status?: RequestStatus;
   purchaseType?: PurchaseType;
+  awardedProviderId?: number | null;
   isoIds: number[];
   justification: string;
   totalAmountEstimated?: number;
+  finalSubtotal?: number;
+  finalIva?: number;
+  finalRetentionIva?: number;
+  finalRetentionIsr?: number;
   totalAmountFinal?: number;
   requestComponents?: RequestComponent[];
   productItems?: ProductItem[];
@@ -66,10 +74,18 @@ export type PurchaseRequestProps = {
 export type CreatePurchaseRequestProps = Omit<
   PurchaseRequestProps,
   | 'id'
+  | 'parentRequestId'
   | 'requestNumber'
+  | 'segmentNumber'
+  | 'folio'
   | 'status'
   | 'purchaseType'
+  | 'awardedProviderId'
   | 'totalAmountEstimated'
+  | 'finalSubtotal'
+  | 'finalIva'
+  | 'finalRetentionIva'
+  | 'finalRetentionIsr'
   | 'totalAmountFinal'
   | 'createdAt'
   | 'updatedAt'
@@ -157,7 +173,10 @@ const roundMoney = (value: number): number =>
 
 export class PurchaseRequest {
   readonly id?: PurchaseRequestID;
+  readonly parentRequestId: string | null;
   readonly requestNumber?: number;
+  readonly segmentNumber: number;
+  readonly folio?: string;
   readonly requestedBy: string;
   readonly isoIds: number[];
   readonly justification: string;
@@ -166,7 +185,12 @@ export class PurchaseRequest {
 
   private _purchaseType: PurchaseType | null;
   private _status: RequestStatus;
+  private _awardedProviderId: number | null;
   private _totalAmountEstimated: number;
+  private _finalSubtotal: number;
+  private _finalIva: number;
+  private _finalRetentionIva: number;
+  private _finalRetentionIsr: number;
   private _totalAmountFinal: number;
 
   private readonly _requestComponents: RequestComponent[];
@@ -174,13 +198,21 @@ export class PurchaseRequest {
 
   private constructor(props: PurchaseRequestProps) {
     this.id = props.id;
+    this.parentRequestId = props.parentRequestId ?? null;
     this.requestNumber = props.requestNumber;
+    this.segmentNumber = props.segmentNumber ?? 0;
+    this.folio = props.folio;
     this.requestedBy = props.requestedBy;
     this.isoIds = [...(props.isoIds ?? [])];
     this.justification = props.justification;
     this._status = props.status ?? 'SOLICITADO';
     this._purchaseType = props.purchaseType ?? null;
+    this._awardedProviderId = props.awardedProviderId ?? null;
     this._totalAmountEstimated = props.totalAmountEstimated ?? 0;
+    this._finalSubtotal = props.finalSubtotal ?? 0;
+    this._finalIva = props.finalIva ?? 0;
+    this._finalRetentionIva = props.finalRetentionIva ?? 0;
+    this._finalRetentionIsr = props.finalRetentionIsr ?? 0;
     this._totalAmountFinal = props.totalAmountFinal ?? 0;
     this._requestComponents = [...(props.requestComponents ?? [])];
     this._productItems = [...(props.productItems ?? [])];
@@ -255,6 +287,21 @@ export class PurchaseRequest {
   }
   get purchaseType(): PurchaseType | null {
     return this._purchaseType;
+  }
+  get awardedProviderId(): number | null {
+    return this._awardedProviderId;
+  }
+  get finalSubtotal(): number {
+    return this._finalSubtotal;
+  }
+  get finalIva(): number {
+    return this._finalIva;
+  }
+  get finalRetentionIva(): number {
+    return this._finalRetentionIva;
+  }
+  get finalRetentionIsr(): number {
+    return this._finalRetentionIsr;
   }
 
   // Las filas repetidas (componente + actividad + fuente) las rechaza el UNIQUE de la BD.
@@ -351,6 +398,43 @@ export class PurchaseRequest {
   rejectBySufficiency(justification?: string): void {
     assertJustification(justification);
     this.changeStatus('RECHAZA_SUFICIENCIA');
+  }
+  assignPurchaseType(purchaseType: PurchaseType): boolean {
+    assertValidPurchaseType(purchaseType);
+    if (this._status === 'AUTORIZA_SUFICIENCIA') {
+      this._purchaseType = purchaseType;
+      this.changeStatus('EN_REVISION_RECURSOS');
+      return true;
+    }
+    if (this._status === 'EN_REVISION_RECURSOS') {
+      this._purchaseType = purchaseType;
+      return false;
+    }
+    throw new InvalidStatusTransitionError(
+      this._status,
+      'EN_REVISION_RECURSOS',
+    );
+  }
+  applyCounterPurchase(providerId: number, totalAmountFinal: number): void {
+    if (this._status !== 'EN_REVISION_RECURSOS') {
+      throw new InvalidStatusTransitionError(
+        this._status,
+        'EN_REVISION_RECURSOS',
+      );
+    }
+    if (!Number.isInteger(providerId) || providerId <= 0) {
+      throw new InvalidFieldError('awardedProviderId', 'debe ser un entero positivo');
+    }
+    if (!Number.isFinite(totalAmountFinal) || totalAmountFinal <= 0) {
+      throw new InvalidAmountError('totalAmountFinal', 'debe ser mayor a 0');
+    }
+    const rounded = roundMoney(totalAmountFinal);
+    this._awardedProviderId = providerId;
+    this._finalSubtotal = rounded;
+    this._finalIva = 0;
+    this._finalRetentionIva = 0;
+    this._finalRetentionIsr = 0;
+    this._totalAmountFinal = rounded;
   }
   startMarketStudy(): void {
     this.changeStatus('EN_REVISION_RECURSOS');

@@ -11,6 +11,7 @@ import {
   type ComponentLeaderStatus,
 } from '../../business/request-component.model';
 import type {
+  AssignPurchaseTypeInput,
   FindInboxItemRepoQuery,
   HistoryEntry,
   InboxSummary,
@@ -22,6 +23,9 @@ import type {
   PurchaseRequestProductItemView,
   PurchaseRequestRepositoryI,
   PurchaseRequestView,
+  SaveCounterPurchaseInput,
+  SegmentRequestInput,
+  SendToSufficiencyInput,
   StatusGroup,
   StatusGroupCondition,
   SummarizeInboxRepoQuery,
@@ -29,9 +33,17 @@ import type {
 import {
   ActivityNotInComponentError,
   ActivityWithoutLeaderError,
+  ComparativeChartLocksRequestError,
+  ComparativeChartRequiredError,
   ComponentReferenceNotFoundError,
+  CounterPurchaseIncompleteError,
   DuplicatedRequestComponentError,
+  InvalidComponentFinalAmountsError,
+  InvalidPurchaseTypeForActionError,
+  InvalidSegmentationError,
+  InvalidStatusTransitionError,
   ProductReferenceNotFoundError,
+  ProviderNotFoundOrInactiveError,
   PurchaseRequestAlreadyPersistedError,
   PurchaseRequestIsosNotFoundError,
   PurchaseRequestNotCreatedError,
@@ -47,13 +59,21 @@ import { MariaDBRepository, type Row, type Tx } from './mariadb.repository';
 
 type DatabasePurchaseRequestRow = {
   id: string;
+  parent_request_id: string | null;
   request_number: number;
+  segment_number: number;
+  folio: string;
   requested_by: string;
   status: RequestStatus;
   purchase_type: PurchaseType | null;
+  awarded_provider_id: number | null;
   iso_ids: unknown;
   justification: string;
   total_amount_estimated: string | number;
+  final_subtotal: string | number;
+  final_iva: string | number;
+  final_retention_iva: string | number;
+  final_retention_isr: string | number;
   total_amount_final: string | number;
   created_at: Date;
   updated_at: Date;
@@ -71,14 +91,40 @@ type DatabaseRequestComponentRow = {
   leader_decided_at: Date | null;
 };
 
+type DatabaseProductItemRow = {
+  id: string;
+  budget_item_id: number;
+  measurement_unit_id: number;
+  quantity: string | number;
+  description: string;
+  estimated_amount: string | number;
+  final_amount: string | number;
+  position: number;
+};
+
 type DatabaseInboxRow = {
   id: string;
+  parent_request_id: string | null;
   request_number: number;
+  segment_number: number;
+  folio: string;
   status: RequestStatus;
   purchase_type: PurchaseType | null;
   justification: string;
   total_amount_estimated: string | number;
+  final_subtotal: string | number;
+  final_iva: string | number;
+  final_retention_iva: string | number;
+  final_retention_isr: string | number;
   total_amount_final: string | number;
+  awarded_provider_id: number | null;
+  awarded_provider_rfc: string | null;
+  awarded_provider_name: string | null;
+  comparative_chart_id: string | null;
+  comparative_chart_highest_score: number | null;
+  comparative_chart_total_amount: string | number | null;
+  comparative_chart_awarded_provider_name: string | null;
+  comparative_chart_updated_at: Date | null;
   created_at: Date;
   updated_at: Date;
   requester_id: string;
@@ -94,6 +140,23 @@ type DatabaseInboxRow = {
   product_items: unknown;
   history: unknown;
 };
+
+const RESOURCES_VISIBLE_STATUSES: readonly RequestStatus[] = [
+  'AUTORIZA_SUFICIENCIA',
+  'EN_REVISION_RECURSOS',
+  'PENDIENTE_APROBACION_SUFICIENCIA',
+  'APRUEBA_SUFICIENCIA',
+  'RECHAZA_SUFICIENCIA_FINAL',
+  'APRUEBA_REVISION',
+  'RECHAZA_REVISION',
+  'AUTORIZA_DIRECCION',
+  'RECHAZA_DIRECCION',
+  'APRUEBA_FISCAL',
+  'RECHAZA_FISCAL',
+];
+
+const roundMoney = (value: number): number =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
 
 type VisibilitySql = {
   // Condición del WHERE sobre pr (puede usar me.uid)
@@ -184,6 +247,19 @@ export class PurchaseRequestRepository
       params.push(query.status);
     }
 
+    if (query.unclassified) {
+      conditions.push(
+        "pr.status = 'AUTORIZA_SUFICIENCIA' AND pr.purchase_type IS NULL",
+      );
+    }
+
+    if (query.purchaseTypes && query.purchaseTypes.length > 0) {
+      conditions.push(
+        `pr.purchase_type IN (${this.placeholders(query.purchaseTypes)})`,
+      );
+      params.push(...query.purchaseTypes);
+    }
+
     if (query.statusGroup) {
       const group = this.buildStatusGroupSql(query.statusGroup);
       conditions.push(group.sql);
@@ -191,8 +267,10 @@ export class PurchaseRequestRepository
     }
 
     if (query.search) {
-      conditions.push('CAST(pr.request_number AS CHAR) LIKE ?');
-      params.push(`%${query.search}%`);
+      conditions.push(
+        '(pr.folio LIKE ? OR CAST(pr.request_number AS CHAR) LIKE ?)',
+      );
+      params.push(`%${query.search}%`, `%${query.search}%`);
     }
 
     const whereSql = conditions.join(' AND ');
@@ -216,7 +294,7 @@ export class PurchaseRequestRepository
     const rows = (await this.execute(
       `${select.sql}
        WHERE ${whereSql}
-       ORDER BY pr.request_number DESC
+       ORDER BY pr.request_number DESC, pr.segment_number ASC
        LIMIT ? OFFSET ?`,
       [...select.params, ...params, query.limit, offset],
     )) as DatabaseInboxRow[];
@@ -339,6 +417,665 @@ export class PurchaseRequestRepository
     });
   }
 
+  async assignPurchaseTypeWithLock(
+    input: AssignPurchaseTypeInput,
+  ): Promise<boolean> {
+    return this.withTransaction(async (tx) => {
+      const requestRows = (await this.executeOn(
+        tx,
+        `SELECT pr.*, NULL AS iso_ids
+         FROM purchase_requests pr
+         WHERE pr.id = ?
+         FOR UPDATE`,
+        [input.purchaseRequestId],
+      )) as DatabasePurchaseRequestRow[];
+      const row = requestRows[0];
+      if (!row || !RESOURCES_VISIBLE_STATUSES.includes(row.status)) {
+        return false;
+      }
+
+      const chartRows = await this.executeOn(
+        tx,
+        `SELECT id FROM comparative_charts WHERE purchase_request_id = ? LIMIT 1 FOR UPDATE`,
+        [input.purchaseRequestId],
+      );
+      if (chartRows.length > 0) {
+        throw new ComparativeChartLocksRequestError();
+      }
+
+      const request = PurchaseRequest.rehydrate(this.toDomainProps(row));
+      const statusBefore = request.status;
+      const transitioned = request.assignPurchaseType(input.purchaseType);
+
+      const clearCounterFields =
+        input.purchaseType !== 'COMPRA_MOSTRADOR' &&
+        row.purchase_type === 'COMPRA_MOSTRADOR';
+
+      await this.executeOn(
+        tx,
+        `UPDATE purchase_requests
+         SET purchase_type = ?,
+             status = ?,
+             awarded_provider_id = CASE WHEN ? THEN NULL ELSE awarded_provider_id END,
+             final_subtotal = CASE WHEN ? THEN 0.00 ELSE final_subtotal END,
+             final_iva = CASE WHEN ? THEN 0.00 ELSE final_iva END,
+             final_retention_iva = CASE WHEN ? THEN 0.00 ELSE final_retention_iva END,
+             final_retention_isr = CASE WHEN ? THEN 0.00 ELSE final_retention_isr END,
+             total_amount_final = CASE WHEN ? THEN 0.00 ELSE total_amount_final END
+         WHERE id = ?`,
+        [
+          request.purchaseType,
+          request.status,
+          clearCounterFields ? 1 : 0,
+          clearCounterFields ? 1 : 0,
+          clearCounterFields ? 1 : 0,
+          clearCounterFields ? 1 : 0,
+          clearCounterFields ? 1 : 0,
+          clearCounterFields ? 1 : 0,
+          input.purchaseRequestId,
+        ],
+      );
+
+      if (transitioned) {
+        await this.executeOn(
+          tx,
+          `INSERT INTO purchase_request_history
+             (purchase_request_id, request_component_id, status_before, status_after,
+              decision, user_id, justification)
+           VALUES (?, NULL, ?, ?, 'APROBADO', ?, NULL)`,
+          [input.purchaseRequestId, statusBefore, request.status, input.userId],
+        );
+      }
+
+      return true;
+    });
+  }
+
+  async segmentWithLock(
+    input: SegmentRequestInput,
+  ): Promise<{ derivedId: PurchaseRequestID } | null> {
+    return this.withTransaction(async (tx) => {
+      const requestRows = (await this.executeOn(
+        tx,
+        `SELECT pr.*, NULL AS iso_ids
+         FROM purchase_requests pr
+         WHERE pr.id = ?
+         FOR UPDATE`,
+        [input.purchaseRequestId],
+      )) as DatabasePurchaseRequestRow[];
+      const row = requestRows[0];
+      if (!row || !RESOURCES_VISIBLE_STATUSES.includes(row.status)) {
+        return null;
+      }
+
+      if (row.status !== 'EN_REVISION_RECURSOS' || !row.purchase_type) {
+        throw new InvalidStatusTransitionError(
+          row.status,
+          'EN_REVISION_RECURSOS',
+        );
+      }
+
+      const chartRows = await this.executeOn(
+        tx,
+        `SELECT id FROM comparative_charts WHERE purchase_request_id = ? LIMIT 1 FOR UPDATE`,
+        [input.purchaseRequestId],
+      );
+      if (chartRows.length > 0) {
+        throw new ComparativeChartLocksRequestError();
+      }
+
+      const productRows = (await this.executeOn(
+        tx,
+        `SELECT id, budget_item_id, measurement_unit_id, quantity, description,
+                estimated_amount, final_amount, position
+         FROM product_items
+         WHERE purchase_request_id = ?
+         ORDER BY position ASC
+         FOR UPDATE`,
+        [input.purchaseRequestId],
+      )) as DatabaseProductItemRow[];
+
+      if (productRows.length <= 1) {
+        throw new InvalidSegmentationError(
+          'la solicitud debe tener más de 1 producto para segmentarse.',
+        );
+      }
+
+      const selectedSet = new Set(input.productItemIds);
+      if (selectedSet.size !== input.productItemIds.length) {
+        throw new InvalidSegmentationError(
+          'no se permiten productos duplicados.',
+        );
+      }
+      if (selectedSet.size === 0) {
+        throw new InvalidSegmentationError(
+          'debes seleccionar al menos 1 producto para el subfolio.',
+        );
+      }
+      const existingIds = new Set(productRows.map((p) => p.id));
+      for (const id of selectedSet) {
+        if (!existingIds.has(id)) {
+          throw new InvalidSegmentationError(
+            `el producto '${id}' no pertenece a esta solicitud.`,
+          );
+        }
+      }
+      const remainingItems = productRows.filter((p) => !selectedSet.has(p.id));
+      const movedItems = productRows.filter((p) => selectedSet.has(p.id));
+      if (remainingItems.length === 0) {
+        throw new InvalidSegmentationError(
+          'la solicitud original debe conservar al menos 1 producto.',
+        );
+      }
+
+      const originalEstimated = roundMoney(
+        remainingItems.reduce((sum, p) => sum + Number(p.estimated_amount), 0),
+      );
+      const derivedEstimated = roundMoney(
+        movedItems.reduce((sum, p) => sum + Number(p.estimated_amount), 0),
+      );
+
+      const componentRows = (await this.executeOn(
+        tx,
+        `SELECT id, component_id, activity_id, funding_source_id,
+                estimated_amount, final_amount, leader_id, leader_status, leader_decided_at
+         FROM request_components
+         WHERE purchase_request_id = ?
+         ORDER BY id ASC
+         FOR UPDATE`,
+        [input.purchaseRequestId],
+      )) as DatabaseRequestComponentRow[];
+
+      let resolvedAllocations: {
+        row: DatabaseRequestComponentRow;
+        originalAmount: number;
+        derivedAmount: number;
+      }[];
+
+      if (componentRows.length === 1) {
+        resolvedAllocations = [
+          {
+            row: componentRows[0],
+            originalAmount: originalEstimated,
+            derivedAmount: derivedEstimated,
+          },
+        ];
+      } else {
+        const allocations = input.componentAllocations ?? [];
+        if (allocations.length !== componentRows.length) {
+          throw new InvalidSegmentationError(
+            'debes distribuir manualmente los montos estimados entre todas las actividades de la solicitud.',
+          );
+        }
+        const byId = new Map(allocations.map((a) => [a.requestComponentId, a]));
+        if (byId.size !== componentRows.length) {
+          throw new InvalidSegmentationError(
+            'hay actividades duplicadas o faltantes en la distribución.',
+          );
+        }
+
+        let sumOriginal = 0;
+        let sumDerived = 0;
+        resolvedAllocations = componentRows.map((comp) => {
+          const alloc = byId.get(comp.id);
+          if (!alloc) {
+            throw new InvalidSegmentationError(
+              `falta la distribución para la actividad '${comp.id}'.`,
+            );
+          }
+          if (
+            alloc.originalEstimatedAmount < 0 ||
+            alloc.derivedEstimatedAmount < 0
+          ) {
+            throw new InvalidSegmentationError(
+              'los montos distribuidos deben ser mayores o iguales a $0.00.',
+            );
+          }
+          const originalAmount = roundMoney(alloc.originalEstimatedAmount);
+          const derivedAmount = roundMoney(alloc.derivedEstimatedAmount);
+          sumOriginal = roundMoney(sumOriginal + originalAmount);
+          sumDerived = roundMoney(sumDerived + derivedAmount);
+          return { row: comp, originalAmount, derivedAmount };
+        });
+
+        if (Math.abs(sumOriginal - originalEstimated) > 0.01) {
+          throw new InvalidSegmentationError(
+            `la suma para la solicitud original ($${sumOriginal.toFixed(2)}) debe coincidir con sus productos ($${originalEstimated.toFixed(2)}).`,
+          );
+        }
+        if (Math.abs(sumDerived - derivedEstimated) > 0.01) {
+          throw new InvalidSegmentationError(
+            `la suma para el subfolio ($${sumDerived.toFixed(2)}) debe coincidir con los productos movidos ($${derivedEstimated.toFixed(2)}).`,
+          );
+        }
+      }
+
+      const maxRows = await this.executeOn(
+        tx,
+        `SELECT COALESCE(MAX(segment_number), 0) AS max_segment
+         FROM purchase_requests
+         WHERE request_number = ?
+         FOR UPDATE`,
+        [row.request_number],
+      );
+      const nextSegment = Number(maxRows[0]?.max_segment ?? 0) + 1;
+      const rootParentId = row.parent_request_id ?? row.id;
+
+      const insertedDerived = await this.executeOn(
+        tx,
+        `INSERT INTO purchase_requests
+           (parent_request_id, request_number, segment_number, requested_by,
+            status, purchase_type, awarded_provider_id, justification,
+            total_amount_estimated, final_subtotal, final_iva,
+            final_retention_iva, final_retention_isr, total_amount_final)
+         VALUES (?, ?, ?, ?, 'AUTORIZA_SUFICIENCIA', NULL, NULL, ?, ?, 0.00, 0.00, 0.00, 0.00, 0.00)
+         RETURNING id`,
+        [
+          rootParentId,
+          row.request_number,
+          nextSegment,
+          row.requested_by,
+          row.justification,
+          derivedEstimated,
+        ],
+      );
+      const derivedId = insertedDerived[0]?.id as string | undefined;
+      if (!derivedId) {
+        throw new PurchaseRequestNotCreatedError();
+      }
+
+      await this.executeOn(
+        tx,
+        `INSERT INTO purchase_request_isos (purchase_request_id, iso_id)
+         SELECT ?, iso_id
+         FROM purchase_request_isos
+         WHERE purchase_request_id = ?`,
+        [derivedId, input.purchaseRequestId],
+      );
+
+      const componentIdMap = new Map<string, string>();
+      for (const alloc of resolvedAllocations) {
+        await this.executeOn(
+          tx,
+          `UPDATE request_components
+           SET estimated_amount = ?, final_amount = 0.00
+           WHERE id = ?`,
+          [alloc.originalAmount, alloc.row.id],
+        );
+
+        if (alloc.derivedAmount > 0 || resolvedAllocations.length === 1) {
+          const insertedComp = await this.executeOn(
+            tx,
+            `INSERT INTO request_components
+               (purchase_request_id, component_id, activity_id, funding_source_id,
+                estimated_amount, final_amount, leader_id, leader_status, leader_decided_at)
+             VALUES (?, ?, ?, ?, ?, 0.00, ?, ?, ?)
+             RETURNING id`,
+            [
+              derivedId,
+              alloc.row.component_id,
+              alloc.row.activity_id,
+              alloc.row.funding_source_id,
+              alloc.derivedAmount,
+              alloc.row.leader_id,
+              alloc.row.leader_status,
+              alloc.row.leader_decided_at,
+            ],
+          );
+          if (insertedComp[0]?.id) {
+            componentIdMap.set(alloc.row.id, String(insertedComp[0].id));
+          }
+        }
+      }
+
+      // Copiar historial heredado (líderes + primera autorización de suficiencia) al subfolio.
+      const inheritedHistory = await this.executeOn(
+        tx,
+        `SELECT request_component_id, status_before, status_after, decision,
+                user_id, signer_name, justification, created_at
+         FROM purchase_request_history
+         WHERE purchase_request_id = ?
+           AND status_before IN ('SOLICITADO', 'APRUEBA_LIDER')
+         ORDER BY created_at ASC`,
+        [input.purchaseRequestId],
+      );
+      for (const h of inheritedHistory) {
+        const mappedCompId = h.request_component_id
+          ? (componentIdMap.get(String(h.request_component_id)) ?? null)
+          : null;
+        if (h.request_component_id && !mappedCompId) continue;
+        await this.executeOn(
+          tx,
+          `INSERT INTO purchase_request_history
+             (purchase_request_id, request_component_id, status_before, status_after,
+              decision, user_id, signer_name, justification, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            derivedId,
+            mappedCompId,
+            h.status_before,
+            h.status_after,
+            h.decision,
+            h.user_id,
+            h.signer_name,
+            h.justification,
+            h.created_at,
+          ],
+        );
+      }
+
+      // Desplazar temporalmente las posiciones para evitar colisiones en uq_product_item_position.
+      await this.executeOn(
+        tx,
+        `UPDATE product_items
+         SET position = position + 10000
+         WHERE purchase_request_id = ?`,
+        [input.purchaseRequestId],
+      );
+
+      for (const [pos, item] of movedItems.entries()) {
+        await this.executeOn(
+          tx,
+          `UPDATE product_items
+           SET purchase_request_id = ?, position = ?, final_amount = 0.00
+           WHERE id = ?`,
+          [derivedId, pos, item.id],
+        );
+      }
+
+      for (const [pos, item] of remainingItems.entries()) {
+        await this.executeOn(
+          tx,
+          `UPDATE product_items
+           SET position = ?, final_amount = 0.00
+           WHERE id = ?`,
+          [pos, item.id],
+        );
+      }
+
+      await this.executeOn(
+        tx,
+        `UPDATE purchase_requests
+         SET total_amount_estimated = ?,
+             awarded_provider_id = NULL,
+             final_subtotal = 0.00,
+             final_iva = 0.00,
+             final_retention_iva = 0.00,
+             final_retention_isr = 0.00,
+             total_amount_final = 0.00
+         WHERE id = ?`,
+        [originalEstimated, input.purchaseRequestId],
+      );
+
+      return { derivedId };
+    });
+  }
+
+  async saveCounterPurchaseWithLock(
+    input: SaveCounterPurchaseInput,
+  ): Promise<boolean> {
+    return this.withTransaction(async (tx) => {
+      const requestRows = (await this.executeOn(
+        tx,
+        `SELECT pr.*, NULL AS iso_ids
+         FROM purchase_requests pr
+         WHERE pr.id = ?
+         FOR UPDATE`,
+        [input.purchaseRequestId],
+      )) as DatabasePurchaseRequestRow[];
+      const row = requestRows[0];
+      if (!row || !RESOURCES_VISIBLE_STATUSES.includes(row.status)) {
+        return false;
+      }
+
+      if (row.status !== 'EN_REVISION_RECURSOS') {
+        throw new InvalidStatusTransitionError(
+          row.status,
+          'EN_REVISION_RECURSOS',
+        );
+      }
+      if (row.purchase_type !== 'COMPRA_MOSTRADOR') {
+        throw new InvalidPurchaseTypeForActionError(
+          'captura de compra de mostrador',
+          row.purchase_type,
+        );
+      }
+
+      const providerRows = await this.executeOn(
+        tx,
+        `SELECT id FROM providers WHERE id = ? AND is_active = TRUE LIMIT 1`,
+        [input.awardedProviderId],
+      );
+      if (providerRows.length === 0) {
+        throw new ProviderNotFoundOrInactiveError(input.awardedProviderId);
+      }
+
+      const request = PurchaseRequest.rehydrate(this.toDomainProps(row));
+      request.applyCounterPurchase(
+        input.awardedProviderId,
+        input.totalAmountFinal,
+      );
+
+      await this.executeOn(
+        tx,
+        `UPDATE purchase_requests
+         SET awarded_provider_id = ?,
+             final_subtotal = ?,
+             final_iva = 0.00,
+             final_retention_iva = 0.00,
+             final_retention_isr = 0.00,
+             total_amount_final = ?
+         WHERE id = ?`,
+        [
+          request.awardedProviderId,
+          request.finalSubtotal,
+          request.totalAmountFinal,
+          input.purchaseRequestId,
+        ],
+      );
+
+      return true;
+    });
+  }
+
+  async sendToSufficiencyWithLock(
+    input: SendToSufficiencyInput,
+  ): Promise<boolean> {
+    return this.withTransaction(async (tx) => {
+      const requestRows = (await this.executeOn(
+        tx,
+        `SELECT pr.*, NULL AS iso_ids
+         FROM purchase_requests pr
+         WHERE pr.id = ?
+         FOR UPDATE`,
+        [input.purchaseRequestId],
+      )) as DatabasePurchaseRequestRow[];
+      const row = requestRows[0];
+      if (!row || !RESOURCES_VISIBLE_STATUSES.includes(row.status)) {
+        return false;
+      }
+
+      if (row.status !== 'EN_REVISION_RECURSOS') {
+        throw new InvalidStatusTransitionError(
+          row.status,
+          'PENDIENTE_APROBACION_SUFICIENCIA',
+        );
+      }
+      if (!row.purchase_type) {
+        throw new InvalidPurchaseTypeForActionError(
+          'enviar a Suficiencia',
+          null,
+        );
+      }
+
+      const componentRows = (await this.executeOn(
+        tx,
+        `SELECT id, component_id, activity_id, funding_source_id,
+                estimated_amount, final_amount, leader_id, leader_status, leader_decided_at
+         FROM request_components
+         WHERE purchase_request_id = ?
+         FOR UPDATE`,
+        [input.purchaseRequestId],
+      )) as DatabaseRequestComponentRow[];
+
+      let awardedProviderId: number;
+      let finalSubtotal: number;
+      let finalIva: number;
+      let finalRetentionIva: number;
+      let finalRetentionIsr: number;
+      let finalTotal: number;
+
+      if (row.purchase_type === 'COMPRA_MOSTRADOR') {
+        if (!row.awarded_provider_id || Number(row.total_amount_final) <= 0) {
+          throw new CounterPurchaseIncompleteError();
+        }
+        awardedProviderId = Number(row.awarded_provider_id);
+        finalTotal = roundMoney(Number(row.total_amount_final));
+        finalSubtotal = finalTotal;
+        finalIva = 0;
+        finalRetentionIva = 0;
+        finalRetentionIsr = 0;
+      } else {
+        const chartRows = await this.executeOn(
+          tx,
+          `SELECT id, awarded_provider_id
+           FROM comparative_charts
+           WHERE purchase_request_id = ?
+           LIMIT 1
+           FOR UPDATE`,
+          [input.purchaseRequestId],
+        );
+        const chart = chartRows[0];
+        if (!chart) {
+          throw new ComparativeChartRequiredError();
+        }
+
+        const providerRows = await this.executeOn(
+          tx,
+          `SELECT id, subtotal, iva, retention_iva, retention_isr, total
+           FROM comparative_chart_providers
+           WHERE comparative_chart_id = ? AND provider_id = ?
+           LIMIT 1`,
+          [chart.id, chart.awarded_provider_id],
+        );
+        const winnerCol = providerRows[0];
+        if (!winnerCol) {
+          throw new ComparativeChartRequiredError();
+        }
+
+        const quotedItems = await this.executeOn(
+          tx,
+          `SELECT product_item_id, total_cost
+           FROM comparative_chart_items
+           WHERE comparative_chart_provider_id = ?`,
+          [winnerCol.id],
+        );
+        for (const item of quotedItems) {
+          await this.executeOn(
+            tx,
+            `UPDATE product_items
+             SET final_amount = ?
+             WHERE id = ? AND purchase_request_id = ?`,
+            [
+              item.total_cost === null ? 0 : roundMoney(Number(item.total_cost)),
+              item.product_item_id,
+              input.purchaseRequestId,
+            ],
+          );
+        }
+
+        awardedProviderId = Number(chart.awarded_provider_id);
+        finalSubtotal = roundMoney(Number(winnerCol.subtotal));
+        finalIva = roundMoney(Number(winnerCol.iva));
+        finalRetentionIva = roundMoney(Number(winnerCol.retention_iva));
+        finalRetentionIsr = roundMoney(Number(winnerCol.retention_isr));
+        finalTotal = roundMoney(Number(winnerCol.total));
+      }
+
+      if (componentRows.length === 1) {
+        await this.executeOn(
+          tx,
+          `UPDATE request_components SET final_amount = ? WHERE id = ?`,
+          [finalTotal, componentRows[0].id],
+        );
+      } else {
+        const allocations = input.componentFinalAmounts ?? [];
+        if (allocations.length !== componentRows.length) {
+          throw new InvalidComponentFinalAmountsError(
+            'debes distribuir manualmente el monto final entre todas las actividades de la solicitud.',
+          );
+        }
+        const byId = new Map(allocations.map((a) => [a.requestComponentId, a]));
+        if (byId.size !== componentRows.length) {
+          throw new InvalidComponentFinalAmountsError(
+            'hay actividades duplicadas o faltantes en la distribución.',
+          );
+        }
+
+        let sumFinal = 0;
+        for (const comp of componentRows) {
+          const item = byId.get(comp.id);
+          if (!item) {
+            throw new InvalidComponentFinalAmountsError(
+              `falta el monto para la actividad '${comp.id}'.`,
+            );
+          }
+          if (item.finalAmount < 0) {
+            throw new InvalidComponentFinalAmountsError(
+              'ningún monto por actividad puede ser negativo.',
+            );
+          }
+          const amount = roundMoney(item.finalAmount);
+          sumFinal = roundMoney(sumFinal + amount);
+          await this.executeOn(
+            tx,
+            `UPDATE request_components SET final_amount = ? WHERE id = ?`,
+            [amount, comp.id],
+          );
+        }
+
+        if (Math.abs(sumFinal - finalTotal) > 0.01) {
+          throw new InvalidComponentFinalAmountsError(
+            `la suma de los montos por actividad ($${sumFinal.toFixed(2)}) debe coincidir con el monto final ($${finalTotal.toFixed(2)}).`,
+          );
+        }
+      }
+
+      await this.executeOn(
+        tx,
+        `UPDATE purchase_requests
+         SET status = 'PENDIENTE_APROBACION_SUFICIENCIA',
+             awarded_provider_id = ?,
+             final_subtotal = ?,
+             final_iva = ?,
+             final_retention_iva = ?,
+             final_retention_isr = ?,
+             total_amount_final = ?
+         WHERE id = ?`,
+        [
+          awardedProviderId,
+          finalSubtotal,
+          finalIva,
+          finalRetentionIva,
+          finalRetentionIsr,
+          finalTotal,
+          input.purchaseRequestId,
+        ],
+      );
+
+      await this.executeOn(
+        tx,
+        `INSERT INTO purchase_request_history
+           (purchase_request_id, request_component_id, status_before, status_after,
+            decision, user_id, justification)
+         VALUES (?, NULL, 'EN_REVISION_RECURSOS', 'PENDIENTE_APROBACION_SUFICIENCIA', 'APROBADO', ?, NULL)`,
+        [input.purchaseRequestId, input.userId],
+      );
+
+      return true;
+    });
+  }
+
   // ==========================================
   // Query Builders
   // ==========================================
@@ -432,9 +1169,19 @@ export class PurchaseRequestRepository
 
     return {
       params: [...params, viewerId],
-      sql: `SELECT pr.id, pr.request_number, pr.status, pr.purchase_type,
-              pr.justification, pr.total_amount_estimated, pr.total_amount_final,
+      sql: `SELECT pr.id, pr.parent_request_id, pr.request_number, pr.segment_number, pr.folio,
+              pr.status, pr.purchase_type, pr.justification,
+              pr.total_amount_estimated, pr.final_subtotal, pr.final_iva,
+              pr.final_retention_iva, pr.final_retention_isr, pr.total_amount_final,
               pr.created_at, pr.updated_at,
+         ap.id AS awarded_provider_id,
+         ap.rfc AS awarded_provider_rfc,
+         ap.name AS awarded_provider_name,
+         cc.id AS comparative_chart_id,
+         cc.highest_score AS comparative_chart_highest_score,
+         ccp.total AS comparative_chart_total_amount,
+         ccp_prov.name AS comparative_chart_awarded_provider_name,
+         cc.updated_at AS comparative_chart_updated_at,
          u.id AS requester_id,
          u.title AS requester_title,
          u.first_name AS requester_first_name,
@@ -504,6 +1251,11 @@ export class PurchaseRequestRepository
        FROM purchase_requests pr
        INNER JOIN users u ON u.id = pr.requested_by
        INNER JOIN departments d ON d.id = u.department_id
+       LEFT JOIN providers ap ON ap.id = pr.awarded_provider_id
+       LEFT JOIN comparative_charts cc ON cc.purchase_request_id = pr.id
+       LEFT JOIN comparative_chart_providers ccp
+         ON ccp.comparative_chart_id = cc.id AND ccp.provider_id = cc.awarded_provider_id
+       LEFT JOIN providers ccp_prov ON ccp_prov.id = cc.awarded_provider_id
        CROSS JOIN (SELECT ? AS uid) me`,
     };
   }
@@ -511,13 +1263,40 @@ export class PurchaseRequestRepository
   private mapRowToView(row: DatabaseInboxRow): PurchaseRequestView {
     return {
       id: row.id,
+      parentRequestId: row.parent_request_id ?? null,
       requestNumber: Number(row.request_number),
+      segmentNumber: Number(row.segment_number ?? 0),
+      folio: row.folio ?? String(row.request_number),
       status: row.status,
       statusGroup: row.status_group,
       purchaseType: row.purchase_type ?? null,
+      awardedProvider:
+        row.awarded_provider_id && row.awarded_provider_rfc && row.awarded_provider_name
+          ? {
+              id: Number(row.awarded_provider_id),
+              rfc: row.awarded_provider_rfc,
+              name: row.awarded_provider_name,
+            }
+          : null,
       justification: row.justification,
       totalAmountEstimated: Number(row.total_amount_estimated),
+      finalSubtotal: Number(row.final_subtotal ?? 0),
+      finalIva: Number(row.final_iva ?? 0),
+      finalRetentionIva: Number(row.final_retention_iva ?? 0),
+      finalRetentionIsr: Number(row.final_retention_isr ?? 0),
       totalAmountFinal: Number(row.total_amount_final),
+      comparativeChart:
+        row.comparative_chart_id &&
+        row.comparative_chart_awarded_provider_name &&
+        row.comparative_chart_updated_at
+          ? {
+              id: row.comparative_chart_id,
+              highestScore: Number(row.comparative_chart_highest_score ?? 0),
+              totalAmount: Number(row.comparative_chart_total_amount ?? 0),
+              awardedProviderName: row.comparative_chart_awarded_provider_name,
+              updatedAt: row.comparative_chart_updated_at,
+            }
+          : null,
       requester: {
         id: row.requester_id,
         title: row.requester_title ?? null,
@@ -844,13 +1623,23 @@ export class PurchaseRequestRepository
   private toDomainProps(row: DatabasePurchaseRequestRow): PurchaseRequestProps {
     return {
       id: row.id,
-      requestNumber: row.request_number,
+      parentRequestId: row.parent_request_id ?? null,
+      requestNumber: Number(row.request_number),
+      segmentNumber: Number(row.segment_number ?? 0),
+      folio: row.folio,
       requestedBy: row.requested_by,
       status: row.status,
       purchaseType: row.purchase_type ?? undefined,
+      awardedProviderId: row.awarded_provider_id
+        ? Number(row.awarded_provider_id)
+        : null,
       isoIds: this.parseIds(row.iso_ids),
       justification: row.justification,
       totalAmountEstimated: Number(row.total_amount_estimated),
+      finalSubtotal: Number(row.final_subtotal ?? 0),
+      finalIva: Number(row.final_iva ?? 0),
+      finalRetentionIva: Number(row.final_retention_iva ?? 0),
+      finalRetentionIsr: Number(row.final_retention_isr ?? 0),
       totalAmountFinal: Number(row.total_amount_final),
       createdAt: row.created_at,
       updatedAt: row.updated_at,

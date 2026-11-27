@@ -3,20 +3,24 @@ import {
   ArrayNotEmpty,
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  PURCHASE_TYPES,
   REQUEST_STATUSES,
+  type PurchaseType,
   type RequestStatus,
 } from '../../business/purchase-request.model';
 import {
@@ -191,4 +195,112 @@ export class SufficiencyDecisionDto {
     message: 'justification no puede exceder 2000 caracteres.',
   })
   justification?: string;
+}
+
+export class ResourcesInboxQueryDto extends InboxQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return value;
+  })
+  @IsBoolean({ message: 'unclassified debe ser true o false.' })
+  unclassified?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      return value
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+    }
+    return value;
+  })
+  @IsArray({ message: 'purchaseTypes debe ser un arreglo.' })
+  @IsIn(PURCHASE_TYPES, {
+    each: true,
+    message: 'purchaseTypes contiene un tipo de compra inválido.',
+  })
+  purchaseTypes?: PurchaseType[];
+}
+
+export class AssignPurchaseTypeDto {
+  @IsIn(PURCHASE_TYPES, {
+    message: 'purchaseType debe ser una modalidad válida.',
+  })
+  purchaseType: PurchaseType;
+}
+
+export class SegmentAllocationDto {
+  @IsUUID('all', {
+    message: 'requestComponentId debe ser un UUID válido.',
+  })
+  requestComponentId: string;
+
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'originalEstimatedAmount debe tener máximo 2 decimales.' },
+  )
+  @Min(0, { message: 'originalEstimatedAmount debe ser mayor o igual a 0.' })
+  originalEstimatedAmount: number;
+
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'derivedEstimatedAmount debe tener máximo 2 decimales.' },
+  )
+  @Min(0, { message: 'derivedEstimatedAmount debe ser mayor o igual a 0.' })
+  derivedEstimatedAmount: number;
+}
+
+export class SegmentPurchaseRequestDto {
+  @IsArray({ message: 'productItemIds debe ser un arreglo.' })
+  @ArrayMinSize(1, { message: 'Debes seleccionar al menos un renglón.' })
+  @ArrayUnique({ message: 'No se permiten renglones duplicados.' })
+  @IsUUID('all', {
+    each: true,
+    message: 'Cada productItemId debe ser un UUID válido.',
+  })
+  productItemIds: string[];
+
+  @IsOptional()
+  @IsArray({ message: 'componentAllocations debe ser un arreglo.' })
+  @ValidateNested({ each: true })
+  @Type(() => SegmentAllocationDto)
+  componentAllocations?: SegmentAllocationDto[];
+}
+
+export class SaveCounterPurchaseDto {
+  @IsInt({ message: 'awardedProviderId debe ser un número entero.' })
+  @Min(1, { message: 'awardedProviderId debe ser al menos 1.' })
+  awardedProviderId: number;
+
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'totalAmountFinal debe tener máximo 2 decimales.' },
+  )
+  @Min(0.01, { message: 'totalAmountFinal debe ser mayor a 0.' })
+  totalAmountFinal: number;
+}
+
+export class ComponentFinalAmountDto {
+  @IsUUID('all', {
+    message: 'requestComponentId debe ser un UUID válido.',
+  })
+  requestComponentId: string;
+
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'finalAmount debe tener máximo 2 decimales.' },
+  )
+  @Min(0, { message: 'finalAmount debe ser mayor o igual a 0.' })
+  finalAmount: number;
+}
+
+export class SendToSufficiencyDto {
+  @IsOptional()
+  @IsArray({ message: 'componentFinalAmounts debe ser un arreglo.' })
+  @ValidateNested({ each: true })
+  @Type(() => ComponentFinalAmountDto)
+  componentFinalAmounts?: ComponentFinalAmountDto[];
 }

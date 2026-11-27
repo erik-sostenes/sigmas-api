@@ -84,16 +84,33 @@ export interface PurchaseRequestHistoryView {
   createdAt: Date;
 }
 
+export interface ComparativeChartSummaryView {
+  id: string;
+  highestScore: number;
+  totalAmount: number;
+  awardedProviderName: string;
+  updatedAt: Date;
+}
+
 export interface PurchaseRequestView {
   id: PurchaseRequestID;
+  parentRequestId: string | null;
   requestNumber: number;
+  segmentNumber: number;
+  folio: string;
   status: RequestStatus;
   // Etapa según la bandeja que consulta: "por_validar" es lo que le toca a ese usuario.
   statusGroup: StatusGroup;
   purchaseType: PurchaseType | null;
+  awardedProvider: { id: number; rfc: string; name: string } | null;
   justification: string;
   totalAmountEstimated: number;
+  finalSubtotal: number;
+  finalIva: number;
+  finalRetentionIva: number;
+  finalRetentionIsr: number;
   totalAmountFinal: number;
+  comparativeChart: ComparativeChartSummaryView | null;
   requester: PurchaseRequestRequesterView;
   isos: { id: number; name: string }[];
   components: PurchaseRequestComponentView[];
@@ -142,6 +159,9 @@ export interface InboxFilters {
   search?: string;
   // Solo bandeja del líder: estado de sus filas
   leaderStatus?: ComponentLeaderStatus;
+  // Solo bandeja de Recursos Materiales: sin clasificar o filtrado por modalidades
+  unclassified?: boolean;
+  purchaseTypes?: PurchaseType[];
   page: number;
   limit: number;
 }
@@ -208,6 +228,48 @@ export interface HistoryEntry {
   justification?: string;
 }
 
+export interface AssignPurchaseTypeInput {
+  purchaseRequestId: PurchaseRequestID;
+  userId: string;
+  purchaseType: PurchaseType;
+}
+
+export interface SegmentAllocationInput {
+  requestComponentId: string;
+  originalEstimatedAmount: number;
+  derivedEstimatedAmount: number;
+}
+
+export interface SegmentRequestInput {
+  purchaseRequestId: PurchaseRequestID;
+  userId: string;
+  productItemIds: string[];
+  componentAllocations?: SegmentAllocationInput[];
+}
+
+export interface SegmentRequestResult {
+  original: PurchaseRequestView;
+  derived: PurchaseRequestView;
+}
+
+export interface SaveCounterPurchaseInput {
+  purchaseRequestId: PurchaseRequestID;
+  userId: string;
+  awardedProviderId: number;
+  totalAmountFinal: number;
+}
+
+export interface ComponentFinalAmountInput {
+  requestComponentId: string;
+  finalAmount: number;
+}
+
+export interface SendToSufficiencyInput {
+  purchaseRequestId: PurchaseRequestID;
+  userId: string;
+  componentFinalAmounts?: ComponentFinalAmountInput[];
+}
+
 // left ports
 export abstract class PurchaseRequestLogicI {
   abstract create(request: PurchaseRequest): Promise<PurchaseRequestID>;
@@ -231,6 +293,18 @@ export abstract class PurchaseRequestLogicI {
   abstract decideAsSufficiency(
     input: SufficiencyDecisionInput,
   ): Promise<PurchaseRequestView>;
+  abstract assignPurchaseType(
+    input: AssignPurchaseTypeInput,
+  ): Promise<PurchaseRequestView>;
+  abstract segmentRequest(
+    input: SegmentRequestInput,
+  ): Promise<SegmentRequestResult>;
+  abstract saveCounterPurchase(
+    input: SaveCounterPurchaseInput,
+  ): Promise<PurchaseRequestView>;
+  abstract sendToSufficiency(
+    input: SendToSufficiencyInput,
+  ): Promise<PurchaseRequestView>;
 }
 
 // right ports
@@ -251,5 +325,17 @@ export abstract class PurchaseRequestRepositoryI {
   abstract updateWithLock(
     id: PurchaseRequestID,
     change: (request: PurchaseRequest) => HistoryEntry,
+  ): Promise<boolean>;
+  abstract assignPurchaseTypeWithLock(
+    input: AssignPurchaseTypeInput,
+  ): Promise<boolean>;
+  abstract segmentWithLock(
+    input: SegmentRequestInput,
+  ): Promise<{ derivedId: PurchaseRequestID } | null>;
+  abstract saveCounterPurchaseWithLock(
+    input: SaveCounterPurchaseInput,
+  ): Promise<boolean>;
+  abstract sendToSufficiencyWithLock(
+    input: SendToSufficiencyInput,
   ): Promise<boolean>;
 }

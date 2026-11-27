@@ -465,3 +465,41 @@ Query param opcional **`withLeader=true`**:
 **Por qué:** el solicitante no debe ver actividades sin líder, porque esas no se pueden usar (el backend responde 422 `ActivityWithoutLeaderError`).
 
 **Qué hacer en el front:** en "Nueva solicitud", pedir los componentes y las actividades con `?withLeader=true`. Si ningún componente tiene actividades con líder, mostrar un aviso en lugar de un formulario vacío.
+
+---
+
+## ✅ Fase 6: Recursos Materiales, Segmentación, Cuadro Comparativo y Envío a 2ª Validación
+
+**Rama:** `feat/comparative_chart`
+
+### Cambios en `PurchaseRequestView` (todas las bandejas)
+
+Cada solicitud ahora incluye:
+
+- `folio`: cadena (`"565"` o `"565-1"`).
+- `parentRequestId`: `string | null` (UUID de la solicitud raíz si es subfolio).
+- `segmentNumber`: `number` (`0` para original, `1, 2...` para subfolios).
+- `awardedProvider`: `{ id, rfc, name } | null` (cuando ya se capturó mostrador o se envió con cuadro comparativo).
+- `finalSubtotal`, `finalIva`, `finalRetentionIva`, `finalRetentionIsr`: desglose fiscal final (`number`).
+- `comparativeChart`: `{ id, highestScore, totalAmount, awardedProviderName, updatedAt } | null` (resumen del cuadro guardado si existe).
+
+### Filtros nuevos en `GET /api/v1/purchase-requests/resources`
+
+- `unclassified=true`: solo solicitudes en `AUTORIZA_SUFICIENCIA` con `purchase_type IS NULL` (para el Panel principal de Recursos Materiales).
+- `purchaseTypes=COMPRA_LICITACION,COMPRA_INVITACION`: filtra por una o más modalidades de compra.
+- `search` ahora busca tanto por `folio` (`565-1`) como por `request_number`.
+
+### Nuevos endpoints exclusivos de `recursos_materiales`
+
+| Método y ruta | Propósito | Notas |
+|---|---|---|
+| `GET /api/v1/providers?active=true&search=...` | Catálogo de proveedores activos | Ordenados alfabéticamente por nombre; busca por nombre o RFC |
+| `PATCH /api/v1/purchase-requests/resources/:id/purchase-type` | Asignar o cambiar modalidad | Body `{ purchaseType }`. Pasa `AUTORIZA_SUFICIENCIA` → `EN_REVISION_RECURSOS`. Bloqueado (`409 ComparativeChartLocksRequestError`) si ya tiene cuadro comparativo |
+| `POST /api/v1/purchase-requests/resources/:id/segment` | Segmentar renglones en subfolio | Body `{ productItemIds, componentAllocations? }`. Crea subfolio en `AUTORIZA_SUFICIENCIA` con `purchase_type = NULL`. Bloqueado si tiene cuadro comparativo (`409`) |
+| `PATCH /api/v1/purchase-requests/resources/:id/counter-purchase` | Capturar proveedor e importe en mostrador | Body `{ awardedProviderId, totalAmountFinal }`. Solo en `EN_REVISION_RECURSOS` con `COMPRA_MOSTRADOR` |
+| `POST /api/v1/purchase-requests/resources/:id/send-to-sufficiency` | Enviar a 2ª validación de Suficiencia | Body `{ componentFinalAmounts? }`. Pasa a `PENDIENTE_APROBACION_SUFICIENCIA`, fija `product_items.final_amount`, `awarded_provider_id`, desglose fiscal y `total_amount_final` |
+| `GET /api/v1/comparative-charts` | Bandeja de cuadros comparativos | Filtros `status`, `statusGroup`, `search`, `page`, `limit`. Regresa `data`, `meta` y `summary` |
+| `GET /api/v1/comparative-charts/:id` | Detalle completo de cuadro comparativo | Incluye `request` (`PurchaseRequestView`) y `columns` (3 proveedores con cotizaciones y evaluaciones) |
+| `POST /api/v1/comparative-charts` | Guardar cuadro comparativo completo | Sin borradores parciales (`CC-04`). Mantiene la solicitud en `EN_REVISION_RECURSOS` (`CC-06`) |
+| `PUT /api/v1/comparative-charts/:id` | Actualizar cuadro comparativo | Solo permitido en `EN_REVISION_RECURSOS` (`CC-05`). En otro estado responde `409 ComparativeChartReadOnlyError` |
+| `DELETE /api/v1/comparative-charts/:id` | Eliminar cuadro comparativo | Solo permitido en `EN_REVISION_RECURSOS` (`CC-05`). Desbloquea segmentación y cambio de modalidad (`CC-32`) |

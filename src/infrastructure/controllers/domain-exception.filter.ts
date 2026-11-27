@@ -8,12 +8,17 @@ import type { Response } from 'express';
 import {
   ActivityNotInComponentError,
   ActivityWithoutLeaderError,
+  ComparativeChartLocksRequestError,
+  ComparativeChartRequiredError,
   ComponentReferenceNotFoundError,
+  CounterPurchaseIncompleteError,
   InvalidPurchaseRequestError,
+  InvalidPurchaseTypeForActionError,
   InvalidStatusTransitionError,
   LeaderRowAlreadyDecidedError,
   ProductItemNotFoundError,
   ProductReferenceNotFoundError,
+  ProviderNotFoundOrInactiveError,
   PurchaseRequestDomainError,
   PurchaseRequesterNotFoundError,
   PurchaseRequestIsosNotFoundError,
@@ -48,7 +53,11 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
     if (
       error instanceof LeaderRowAlreadyDecidedError ||
       error instanceof RequestNotAwaitingLeadersError ||
-      error instanceof InvalidStatusTransitionError
+      error instanceof InvalidStatusTransitionError ||
+      error instanceof ComparativeChartLocksRequestError ||
+      error instanceof ComparativeChartRequiredError ||
+      error instanceof CounterPurchaseIncompleteError ||
+      error instanceof InvalidPurchaseTypeForActionError
     ) {
       return HttpStatus.CONFLICT;
     }
@@ -60,7 +69,8 @@ export class PurchaseRequestExceptionFilter implements ExceptionFilter {
       error instanceof ActivityNotInComponentError ||
       error instanceof ComponentReferenceNotFoundError ||
       error instanceof ProductReferenceNotFoundError ||
-      error instanceof ProductItemNotFoundError
+      error instanceof ProductItemNotFoundError ||
+      error instanceof ProviderNotFoundOrInactiveError
     ) {
       return HttpStatus.UNPROCESSABLE_ENTITY;
     }

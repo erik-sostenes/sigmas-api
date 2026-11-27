@@ -182,3 +182,55 @@ export class PurchaseRequestNotFoundError extends PurchaseRequestDomainError {
     super(`La solicitud con id '${id}' no existe.`);
   }
 }
+
+export class ComparativeChartLocksRequestError extends PurchaseRequestDomainError {
+  constructor() {
+    super(
+      'No puedes segmentar ni cambiar la modalidad mientras exista un cuadro comparativo guardado. Elimínalo primero.',
+    );
+  }
+}
+
+export class ComparativeChartRequiredError extends PurchaseRequestDomainError {
+  constructor() {
+    super(
+      'Debes guardar el cuadro comparativo antes de enviar la solicitud a segunda revisión de Suficiencia.',
+    );
+  }
+}
+
+export class CounterPurchaseIncompleteError extends PurchaseRequestDomainError {
+  constructor() {
+    super(
+      'Captura el proveedor y un importe final mayor a $0.00 antes de enviar a segunda revisión de Suficiencia.',
+    );
+  }
+}
+
+export class InvalidPurchaseTypeForActionError extends PurchaseRequestDomainError {
+  constructor(action: string, purchaseType: string | null) {
+    super(
+      `La acción '${action}' no aplica para el tipo de compra '${purchaseType ?? 'Sin asignar'}'.`,
+    );
+  }
+}
+
+export class InvalidSegmentationError extends InvalidPurchaseRequestError {
+  constructor(reason: string) {
+    super(`No se puede segmentar la solicitud: ${reason}`);
+  }
+}
+
+export class InvalidComponentFinalAmountsError extends InvalidPurchaseRequestError {
+  constructor(reason: string) {
+    super(`Distribución final por actividad inválida: ${reason}`);
+  }
+}
+
+export class ProviderNotFoundOrInactiveError extends PurchaseRequestDomainError {
+  constructor(providerId: number) {
+    super(
+      `El proveedor con id ${providerId} no existe o no está activo en el catálogo.`,
+    );
+  }
+}

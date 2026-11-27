@@ -11,6 +11,8 @@ import { RoleModule } from './role.module';
 import { ActivityModule } from './activity.module';
 import { MeasurementUnitModule } from './measurement-unit.module';
 import { BudgetItemModule } from './budget-item.module';
+import { ProviderModule } from './provider.module';
+import { ComparativeChartModule } from './comparative-chart.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { BudgetItemModule } from './budget-item.module';
     FundingSourceModule,
     MeasurementUnitModule,
     BudgetItemModule,
+    ProviderModule,
+    ComparativeChartModule,
   ],
 })
 export class AppModule {}

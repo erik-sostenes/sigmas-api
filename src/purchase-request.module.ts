@@ -19,5 +19,6 @@ import { ViewerModule } from './viewer.module';
       useClass: PurchaseRequestRepository,
     },
   ],
+  exports: [PurchaseRequestLogicI, PurchaseRequestRepositoryI],
 })
 export class PurchaseRequestModule {}
