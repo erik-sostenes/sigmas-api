@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseFilters,
@@ -16,6 +17,7 @@ import {
   type InboxSummary,
   type PaginatedPurchaseRequests,
   type PurchaseRequestView,
+  type SegmentRequestResult,
   PurchaseRequestLogicI,
 } from '../../business/purchase-request.ports';
 import { PurchaseRequest } from '../../business/purchase-request.model';
@@ -24,23 +26,32 @@ import { ProductItem } from '../../business/product-item.model';
 import { ROLE } from '../../business/role-codes';
 import type { Viewer } from '../../business/viewer.model';
 import {
+  AssignPurchaseTypeDto,
   CreatePurchaseRequestDto,
   InboxQueryDto,
   LeaderDecisionDto,
   LeaderInboxQueryDto,
+  ResourcesInboxQueryDto,
+  SaveCounterPurchaseDto,
+  SegmentPurchaseRequestDto,
+  SendToSufficiencyDto,
   SufficiencyDecisionDto,
 } from './purchase-request.dto';
 import { PurchaseRequestExceptionFilter } from './domain-exception.filter';
 import { ClerkAuthGuard } from './guards/clerk-auth.guard';
 import { CurrentViewer, RequireRole, RolesGuard } from './guards/roles.guard';
 
-const toInboxFilters = (query: LeaderInboxQueryDto): InboxFilters => {
+const toInboxFilters = (
+  query: LeaderInboxQueryDto & ResourcesInboxQueryDto,
+): InboxFilters => {
   const search = query.search?.trim();
   return {
     status: query.status,
     statusGroup: query.statusGroup,
     search: search ? search : undefined,
     leaderStatus: query.leaderStatus,
+    unclassified: query.unclassified,
+    purchaseTypes: query.purchaseTypes,
     page: query.page ?? 1,
     limit: query.limit ?? 10,
   };
@@ -231,7 +242,7 @@ export class PurchaseRequestController {
   @HttpCode(HttpStatus.OK)
   async listResources(
     @CurrentViewer() viewer: Viewer,
-    @Query() query: InboxQueryDto,
+    @Query() query: ResourcesInboxQueryDto,
   ): Promise<PaginatedPurchaseRequests> {
     return await this.purchaseRequestLogic.listInbox(
       'resources',
@@ -265,6 +276,68 @@ export class PurchaseRequestController {
       viewer.userId,
       id,
     );
+  }
+
+  @Patch('resources/:id/purchase-type')
+  @RequireRole(ROLE.RECURSOS_MATERIALES)
+  @HttpCode(HttpStatus.OK)
+  async assignPurchaseType(
+    @CurrentViewer() viewer: Viewer,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: AssignPurchaseTypeDto,
+  ): Promise<PurchaseRequestView> {
+    return await this.purchaseRequestLogic.assignPurchaseType({
+      purchaseRequestId: id,
+      userId: viewer.userId,
+      purchaseType: dto.purchaseType,
+    });
+  }
+
+  @Post('resources/:id/segment')
+  @RequireRole(ROLE.RECURSOS_MATERIALES)
+  @HttpCode(HttpStatus.CREATED)
+  async segmentRequest(
+    @CurrentViewer() viewer: Viewer,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SegmentPurchaseRequestDto,
+  ): Promise<SegmentRequestResult> {
+    return await this.purchaseRequestLogic.segmentRequest({
+      purchaseRequestId: id,
+      userId: viewer.userId,
+      productItemIds: dto.productItemIds,
+      componentAllocations: dto.componentAllocations,
+    });
+  }
+
+  @Patch('resources/:id/counter-purchase')
+  @RequireRole(ROLE.RECURSOS_MATERIALES)
+  @HttpCode(HttpStatus.OK)
+  async saveCounterPurchase(
+    @CurrentViewer() viewer: Viewer,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SaveCounterPurchaseDto,
+  ): Promise<PurchaseRequestView> {
+    return await this.purchaseRequestLogic.saveCounterPurchase({
+      purchaseRequestId: id,
+      userId: viewer.userId,
+      awardedProviderId: dto.awardedProviderId,
+      totalAmountFinal: dto.totalAmountFinal,
+    });
+  }
+
+  @Post('resources/:id/send-to-sufficiency')
+  @RequireRole(ROLE.RECURSOS_MATERIALES)
+  @HttpCode(HttpStatus.OK)
+  async sendToSufficiency(
+    @CurrentViewer() viewer: Viewer,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SendToSufficiencyDto,
+  ): Promise<PurchaseRequestView> {
+    return await this.purchaseRequestLogic.sendToSufficiency({
+      purchaseRequestId: id,
+      userId: viewer.userId,
+      componentFinalAmounts: dto.componentFinalAmounts,
+    });
   }
 
   // ==========================================

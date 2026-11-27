@@ -5,6 +5,7 @@ import {
   type RequestStatus,
 } from './purchase-request.model';
 import {
+  type AssignPurchaseTypeInput,
   type Inbox,
   type InboxFilters,
   type InboxSummary,
@@ -12,6 +13,10 @@ import {
   type LeaderDecisionInput,
   type PaginatedPurchaseRequests,
   type PurchaseRequestView,
+  type SaveCounterPurchaseInput,
+  type SegmentRequestInput,
+  type SegmentRequestResult,
+  type SendToSufficiencyInput,
   type SufficiencyDecisionInput,
   PurchaseRequestLogicI,
   PurchaseRequestRepositoryI,
@@ -79,6 +84,9 @@ export class PurchaseRequestLogic implements PurchaseRequestLogicI {
       ...filters,
       // leaderStatus solo aplica a la bandeja del líder
       leaderStatus: inbox === 'leader' ? filters.leaderStatus : undefined,
+      // filtros de modalidad solo aplican a la bandeja de Recursos Materiales
+      unclassified: inbox === 'resources' ? filters.unclassified : undefined,
+      purchaseTypes: inbox === 'resources' ? filters.purchaseTypes : undefined,
       statusGroup: filters.statusGroup
         ? INBOX_STAGES[inbox][filters.statusGroup]
         : undefined,
@@ -186,6 +194,65 @@ export class PurchaseRequestLogic implements PurchaseRequestLogicI {
 
     return await this.getInboxItem(
       'sufficiency',
+      input.userId,
+      input.purchaseRequestId,
+    );
+  }
+
+  async assignPurchaseType(
+    input: AssignPurchaseTypeInput,
+  ): Promise<PurchaseRequestView> {
+    const found =
+      await this.purchaseRequestRepository.assignPurchaseTypeWithLock(input);
+    if (!found) {
+      throw new PurchaseRequestNotFoundError(input.purchaseRequestId);
+    }
+    return await this.getInboxItem(
+      'resources',
+      input.userId,
+      input.purchaseRequestId,
+    );
+  }
+
+  async segmentRequest(
+    input: SegmentRequestInput,
+  ): Promise<SegmentRequestResult> {
+    const result = await this.purchaseRequestRepository.segmentWithLock(input);
+    if (!result) {
+      throw new PurchaseRequestNotFoundError(input.purchaseRequestId);
+    }
+    const [original, derived] = await Promise.all([
+      this.getInboxItem('resources', input.userId, input.purchaseRequestId),
+      this.getInboxItem('resources', input.userId, result.derivedId),
+    ]);
+    return { original, derived };
+  }
+
+  async saveCounterPurchase(
+    input: SaveCounterPurchaseInput,
+  ): Promise<PurchaseRequestView> {
+    const found =
+      await this.purchaseRequestRepository.saveCounterPurchaseWithLock(input);
+    if (!found) {
+      throw new PurchaseRequestNotFoundError(input.purchaseRequestId);
+    }
+    return await this.getInboxItem(
+      'resources',
+      input.userId,
+      input.purchaseRequestId,
+    );
+  }
+
+  async sendToSufficiency(
+    input: SendToSufficiencyInput,
+  ): Promise<PurchaseRequestView> {
+    const found =
+      await this.purchaseRequestRepository.sendToSufficiencyWithLock(input);
+    if (!found) {
+      throw new PurchaseRequestNotFoundError(input.purchaseRequestId);
+    }
+    return await this.getInboxItem(
+      'resources',
       input.userId,
       input.purchaseRequestId,
     );

@@ -435,24 +435,25 @@ En la evidencia del folio `00267` (Cuadro Comparativo del `17/07/2026` y Solicit
    - La mecánica y formato del **Anexo técnico** (para `COMPRA_ADJ_DIRECTA`, `COMPRA_INVITACION` y `COMPRA_LICITACION`).
    - El reparto presupuestal de `request_components` y actualización de `total_amount_estimated` entre la solicitud original y el subfolio derivado al segmentar.
    - Cómo se asigna cada solicitud a una persona dentro del área y si existe un caso "sin proveedor".
-   - La propuesta de bandejas de Recursos Materiales (pendiente de validar en implementación):
+   - Estructura confirmada de bandejas de Recursos Materiales:
 
      | Bandeja | Contenido |
      |---|---|
-     | Clasificación | `AUTORIZA_SUFICIENCIA` sin `purchase_type` todavía (`purchase_type = NULL`) |
-     | Compras directas (mostrador) | `EN_REVISION_RECURSOS` + `COMPRA_MOSTRADOR` |
+     | Panel principal (Sin clasificar) | `AUTORIZA_SUFICIENCIA` sin `purchase_type` todavía (`purchase_type = NULL`) |
+     | Adjudicación de mostrador | `EN_REVISION_RECURSOS` + `COMPRA_MOSTRADOR` |
      | Adjudicación directa | `EN_REVISION_RECURSOS` + `COMPRA_ADJ_DIRECTA` |
-     | Licitación | `EN_REVISION_RECURSOS` + `COMPRA_LICITACION` |
-     | Invitación a 3 personas | `EN_REVISION_RECURSOS` + `COMPRA_INVITACION` |
-     | Solicitudes aprobadas | `APRUEBA_SUFICIENCIA`, con búsqueda por folio y por tipo, por separado o juntos |
+     | Licitaciones e invitaciones | `EN_REVISION_RECURSOS` + `COMPRA_LICITACION` o `COMPRA_INVITACION` |
+     | Cuadro comparativo | Bandeja de cuadros comparativos guardados |
+     | Consulta por estado | Histórico completo de Recursos Materiales con pestañas y filtro de estado |
 
    - Recorrido confirmado para clasificación y estudio:
-     1. Al elegir el tipo de compra desde Clasificación (`AUTORIZA_SUFICIENCIA`), la solicitud pasa automáticamente a `EN_REVISION_RECURSOS` y entra a la bandeja de su tipo (pudiendo cambiar de tipo o segmentarse mientras siga en `EN_REVISION_RECURSOS` y no tenga Cuadro Comparativo guardado).
-     2. Al terminar el estudio y confirmar el envío, pasa a `PENDIENTE_APROBACION_SUFICIENCIA` y sale de la bandeja de su tipo.
-     3. Cuando suficiencia la aprueba, aparece en Aprobadas y se habilita la Orden de compra.
-   - Para esto el backend necesitaría:
-     - filtros de `purchaseType` y "sin clasificar" en `/resources`,
-     - los endpoints de clasificar/cambiar tipo, segmentar en subfolios, capturar Mostrador, CRUD de Cuadro Comparativo + descarga `.xlsx` y envío a segunda validación.
+     1. Al elegir el tipo de compra desde el Panel principal (`AUTORIZA_SUFICIENCIA`), la solicitud pasa automáticamente a `EN_REVISION_RECURSOS` y entra a la bandeja de su tipo (pudiendo cambiar de tipo o segmentarse mientras siga en `EN_REVISION_RECURSOS` y no tenga Cuadro Comparativo guardado).
+     2. Al terminar el estudio y confirmar el envío, pasa a `PENDIENTE_APROBACION_SUFICIENCIA`, sale de la bandeja de su tipo y aparece en la 2ª validación de Suficiencia con su monto final actualizado.
+     3. Cuando suficiencia la aprueba, aparece en Aprobadas y se habilitará la Orden de compra (pendiente de implementar).
+   - Endpoints ya implementados para esto (ver `API_CHANGES.md`):
+     - `GET /api/v1/providers` y filtros `unclassified` / `purchaseTypes` en `/resources`,
+     - clasificar/cambiar tipo, segmentar en subfolios, capturar Mostrador, CRUD de Cuadro Comparativo y envío a segunda validación (`PENDIENTE_APROBACION_SUFICIENCIA`).
+   - Pendiente: generación del archivo `.xlsx` en el servidor (en pausa por ahora) y formato del Anexo técnico.
 2. **Catálogo de proveedores y evaluación trimestral:** estructura de datos del catálogo de proveedores (datos generales, clasificación `Críticos` / `Únicos` / `Menores`, datos bancarios y fiscales) y el *Reporte de Evaluación a Proveedores* trimestral (rangos 8–10 Confiable / 5–7 No confiable).
 3. **Orden de compra (página 2 de la Solicitud de Materiales y/o Servicios):** flujo posterior a `APRUEBA_SUFICIENCIA` (captura de datos bancarios y fiscales del proveedor, fecha de pedido, factura y recepción a entera satisfacción).
 4. **Solicitudes con varios componentes, actividades o fuentes de financiamiento:**

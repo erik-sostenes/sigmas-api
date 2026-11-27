@@ -126,10 +126,12 @@ CREATE TABLE IF NOT EXISTS providers (
     KEY idx_providers_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE SEQUENCE IF NOT EXISTS purchase_request_number_seq START WITH 1 INCREMENT BY 1;
+
 CREATE TABLE if not exists purchase_requests (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     parent_request_id CHAR(36) NULL,
-    request_number INT NOT NULL AUTO_INCREMENT,
+    request_number INT NOT NULL DEFAULT (NEXT VALUE FOR purchase_request_number_seq),
     segment_number SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     folio VARCHAR(20) GENERATED ALWAYS AS (
       IF(segment_number = 0, CAST(request_number AS CHAR), CONCAT(request_number, '-', segment_number))
@@ -348,6 +350,7 @@ DROP TABLE IF EXISTS product_items;
 DROP TABLE IF EXISTS request_components;
 DROP TABLE IF EXISTS purchase_request_isos;
 DROP TABLE IF EXISTS purchase_requests;
+DROP SEQUENCE IF EXISTS purchase_request_number_seq;
 DROP TABLE IF EXISTS providers;
 DROP TABLE IF EXISTS invitations;
 DROP TABLE IF EXISTS user_activities;
