@@ -110,9 +110,30 @@ CREATE TABLE IF NOT EXISTS invitations (
     FOREIGN KEY (component_id) REFERENCES components(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS providers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    rfc VARCHAR(13) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    phone VARCHAR(25) NULL,
+    email VARCHAR(254) NULL,
+    bank VARCHAR(100) NULL,
+    clabe VARCHAR(25) NULL,
+    tax_address JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_providers_name (name),
+    KEY idx_providers_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE if not exists purchase_requests (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    request_number INT AUTO_INCREMENT UNIQUE, 
+    parent_request_id CHAR(36) NULL,
+    request_number INT NOT NULL AUTO_INCREMENT,
+    segment_number SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    folio VARCHAR(20) GENERATED ALWAYS AS (
+      IF(segment_number = 0, CAST(request_number AS CHAR), CONCAT(request_number, '-', segment_number))
+    ) STORED,
     requested_by CHAR(36) NOT NULL,
     -- Estados y transiciones: docs/BUSINESS_RULES.md (sección 5)
     status ENUM(
@@ -133,6 +154,7 @@ CREATE TABLE if not exists purchase_requests (
       'RECHAZA_FISCAL'
     ) NOT NULL DEFAULT 'SOLICITADO',
     purchase_type ENUM('COMPRA_MOSTRADOR', 'COMPRA_ADJ_DIRECTA', 'COMPRA_LICITACION', 'COMPRA_INVITACION') NULL,
+    awarded_provider_id INT UNSIGNED NULL,
     justification TEXT NOT NULL,
     total_amount_estimated DECIMAL(12,2) NOT NULL DEFAULT 0, 
     final_subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
@@ -142,10 +164,20 @@ CREATE TABLE if not exists purchase_requests (
     total_amount_final DECIMAL(12,2) NOT NULL DEFAULT 0,     
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_pr_number_segment (request_number, segment_number),
+    UNIQUE KEY uq_pr_folio (folio),
+    KEY idx_pr_parent (parent_request_id),
+    KEY idx_pr_awarded_provider (awarded_provider_id),
+    CONSTRAINT chk_pr_segment_parent CHECK (
+      (parent_request_id IS NULL AND segment_number = 0)
+      OR (parent_request_id IS NOT NULL AND segment_number > 0)
+    ),
     CONSTRAINT chk_pr_final_subtotal CHECK (final_subtotal >= 0),
     CONSTRAINT chk_pr_final_iva CHECK (final_iva >= 0),
     CONSTRAINT chk_pr_final_retention_iva CHECK (final_retention_iva >= 0),
     CONSTRAINT chk_pr_final_retention_isr CHECK (final_retention_isr >= 0),
+    CONSTRAINT fk_pr_parent FOREIGN KEY (parent_request_id) REFERENCES purchase_requests(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_pr_awarded_provider FOREIGN KEY (awarded_provider_id) REFERENCES providers(id) ON DELETE RESTRICT,
     FOREIGN KEY (requested_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -231,22 +263,6 @@ CREATE TABLE IF NOT EXISTS purchase_request_history (
     FOREIGN KEY (user_id) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS providers (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    rfc VARCHAR(13) NOT NULL UNIQUE,
-    name VARCHAR(255) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    phone VARCHAR(25) NULL,
-    email VARCHAR(254) NULL,
-    bank VARCHAR(100) NULL,
-    clabe VARCHAR(25) NULL,
-    tax_address JSON NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    KEY idx_providers_name (name),
-    KEY idx_providers_active (is_active)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS comparative_charts (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     purchase_request_id CHAR(36) NOT NULL UNIQUE,
@@ -327,12 +343,12 @@ DROP TABLE IF EXISTS comparative_chart_evaluations;
 DROP TABLE IF EXISTS comparative_chart_items;
 DROP TABLE IF EXISTS comparative_chart_providers;
 DROP TABLE IF EXISTS comparative_charts;
-DROP TABLE IF EXISTS providers;
 DROP TABLE IF EXISTS purchase_request_history;
 DROP TABLE IF EXISTS product_items;
 DROP TABLE IF EXISTS request_components;
 DROP TABLE IF EXISTS purchase_request_isos;
 DROP TABLE IF EXISTS purchase_requests;
+DROP TABLE IF EXISTS providers;
 DROP TABLE IF EXISTS invitations;
 DROP TABLE IF EXISTS user_activities;
 DROP TABLE IF EXISTS user_roles;

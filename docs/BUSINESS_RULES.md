@@ -1,6 +1,6 @@
 ﻿# Reglas de negocio: solicitudes de compra (SIGMAS)
 
-Última actualización: 25 de noviembre de 2026
+Última actualización: 26 de noviembre de 2026
 
 Este documento es la **fuente de verdad** de las reglas de negocio. Si algo del código o de otro documento lo contradice, gana este archivo.
 
@@ -49,9 +49,10 @@ Garantías en la base de datos:
 
 **Cabecera**
 
-- Folio (`request_number`), fecha y área solicitante (el departamento del solicitante).
+- Folio (`folio`: numérico en la solicitud original, ej. `565`, con `segment_number = 0`; al segmentarse en Recursos Materiales genera derivados con `parent_request_id` y subfolio `565-1`, `565-2`, etc.), fecha y área solicitante (el departamento del solicitante).
 - Justificación y normas ISO (una o varias).
-- `purchase_type` va en `NULL` al crear. Lo define recursos materiales en el estudio de mercado.
+- `purchase_type` va en `NULL` al crear. Lo define Recursos Materiales al asignar el tipo de compra antes de iniciar el estudio de mercado.
+- `awarded_provider_id` va en `NULL` al crear. Lo registra Recursos Materiales al concluir el estudio de mercado (en `COMPRA_MOSTRADOR` directamente y en `COMPRA_ADJ_DIRECTA` / `COMPRA_INVITACION` / `COMPRA_LICITACION` desde el Cuadro Comparativo).
 
 **Filas de distribución** (`request_components`)
 
@@ -73,7 +74,7 @@ Cada fila tiene componente, actividad, fuente de financiamiento ("presupuesto a 
 - Cada producto tiene partida presupuestal, cantidad, unidad de medida, descripción e importe.
 - La **partida presupuestal pertenece solo al producto**. No tiene relación con las actividades ni con los líderes.
 - En la creación inicial (`estimated_amount`), el importe es el **total de la línea con impuestos incluidos**, no `cantidad × precio`. El solicitante no desglosa IVA ni retenciones.
-- En el estudio de mercado por Adjudicación Directa, `final_amount` de cada producto guarda el costo total de la línea **sin IVA** del proveedor adjudicado (`cantidad × costo unitario`), y el IVA más las retenciones (`RET IVA`, `RET ISR`) se registran aparte en el Cuadro Comparativo para determinar `total_amount_final` de la solicitud (ver [sección 10](#10-cuadro-comparativo-adjudicación-directa)).
+- En el estudio de mercado con Cuadro Comparativo (`COMPRA_ADJ_DIRECTA`, `COMPRA_INVITACION` y `COMPRA_LICITACION`), `final_amount` de cada producto guarda el costo total de la línea **sin IVA** del proveedor adjudicado (`cantidad × costo unitario`), y el IVA más las retenciones (`RET IVA`, `RET ISR`) se registran aparte en el Cuadro Comparativo para determinar `total_amount_final` de la solicitud (ver [sección 10](#10-cuadro-comparativo-adjudicación-directa-invitación-y-licitación)).
 - Los productos conservan **el orden en que el solicitante los capturó**, porque así se imprimen en el formato.
 
 ## 4. Creación
@@ -155,13 +156,16 @@ Lo demás queda documentado, pero se construye después.
 **Recursos materiales (estudio de mercado)**
 
 - Recibe la solicitud sin clasificación (`purchase_type = NULL`) en estado `AUTORIZA_SUFICIENCIA`.
-- Cuando Recursos Materiales elige el tipo de compra (`COMPRA_MOSTRADOR`, `COMPRA_ADJ_DIRECTA`, `COMPRA_LICITACION` o `COMPRA_INVITACION`), la solicitud cambia automáticamente a `EN_REVISION_RECURSOS` y entra en la bandeja correspondiente a ese tipo.
-- Mientras la solicitud permanezca en `EN_REVISION_RECURSOS`, Recursos Materiales puede cambiar el `purchase_type`.
-- Cuando se clasifica como `COMPRA_ADJ_DIRECTA`, el estudio de mercado se formaliza capturando el **Cuadro Comparativo** (ver [sección 10](#10-cuadro-comparativo-adjudicación-directa)), sin validación de UMAs en el sistema.
-- Guardar el Cuadro Comparativo mantiene la solicitud en `EN_REVISION_RECURSOS`, permite editarlo mientras siga en ese estado (siempre enviándolo completo, sin borradores parciales) y habilita la descarga del archivo en **Excel (`.xlsx`)** (sin apartados de firmas; Recursos Materiales las agrega manualmente en el archivo).
-- El paso a `PENDIENTE_APROBACION_SUFICIENCIA` ocurre únicamente cuando Recursos Materiales confirma explícitamente el envío a segunda revisión de Suficiencia; a partir de ese momento el Cuadro Comparativo queda en **solo lectura**.
+- **Primer paso obligatorio:** Recursos Materiales debe asignar un tipo de compra (`COMPRA_MOSTRADOR`, `COMPRA_ADJ_DIRECTA`, `COMPRA_INVITACION` o `COMPRA_LICITACION`) antes de elaborar documentos o capturar montos finales. Al asignarlo, la solicitud pasa automáticamente a `EN_REVISION_RECURSOS` y entra en la bandeja correspondiente a ese tipo.
+- Mientras la solicitud permanezca en `EN_REVISION_RECURSOS`, Recursos Materiales puede cambiar el `purchase_type` (siempre que no tenga un Cuadro Comparativo guardado) o segmentarla en subfolios (ver [sección 5.3](#53-segmentación-de-solicitudes)).
+- Según el tipo de compra elegido, el flujo en `EN_REVISION_RECURSOS` es:
+  - **`COMPRA_MOSTRADOR`:** captura directamente **1 proveedor** (`awarded_provider_id`) y **1 importe final** (`total_amount_final`), y envía a segunda revisión de Suficiencia (`PENDIENTE_APROBACION_SUFICIENCIA`).
+  - **`COMPRA_ADJ_DIRECTA`, `COMPRA_INVITACION` y `COMPRA_LICITACION`:** elabora el **Cuadro Comparativo** (ver [sección 10](#10-cuadro-comparativo-adjudicación-directa-invitación-y-licitación)) y el **Anexo técnico**, y luego confirma el envío explícito a segunda revisión de Suficiencia (`PENDIENTE_APROBACION_SUFICIENCIA`).
+- Guardar el Cuadro Comparativo mantiene la solicitud en `EN_REVISION_RECURSOS`, permite **editarlo** o **eliminarlo** mientras siga en ese estado (sin borradores parciales) y habilita la descarga del archivo en **Excel (`.xlsx`)** (sin apartados de firmas; Recursos Materiales las agrega manualmente en el archivo).
+- Al confirmar el envío a `PENDIENTE_APROBACION_SUFICIENCIA`, el Cuadro Comparativo queda en **solo lectura** (editar y eliminar se deshabilitan).
+- La **Orden de compra** se habilita únicamente **después** de la segunda validación de Suficiencia (`APRUEBA_SUFICIENCIA`).
 - No rechaza.
-- 🔜 Por definir: mecánica del estudio de mercado para `COMPRA_MOSTRADOR`, `COMPRA_LICITACION` y `COMPRA_INVITACION`, así como la asignación individual de cada solicitud a una persona.
+- 🔜 Por definir: mecánica detallada de generación del **Anexo técnico**, registro de impresión y **Orden de compra** después de `APRUEBA_SUFICIENCIA`, así como la asignación individual de cada solicitud a una persona.
 
 **Suficiencia, con los montos finales**
 
@@ -195,6 +199,17 @@ Lo demás queda documentado, pero se construye después.
 
 - **Todo rechazo es terminal** y **siempre lleva justificación**.
 - El solicitante se entera del rechazo, pero **no puede editar ni reenviar**. Si quiere insistir, crea una solicitud nueva.
+
+### 5.3 Segmentación de solicitudes
+
+Cuando Recursos Materiales detecta durante el estudio de mercado que algunos productos de una solicitud deben adjudicarse mediante otra modalidad de compra, puede segmentarla:
+
+- **Requisito de estado y productos:** Solo aplica cuando la solicitud está en `EN_REVISION_RECURSOS` (ya tiene `purchase_type` asignado) y cuenta con **más de 1 producto** en `product_items`.
+- **Selección por renglones completos:** Recursos Materiales selecciona uno o más renglones completos (`product_items`) para separarlos, dejando **al menos 1 producto** en la solicitud original.
+- **Creación del subfolio:** Al confirmar, se crea una nueva solicitud derivada vinculada a la original (`parent_request_id`), conservando el `request_number` de la original con un `segment_number` incremental (`565-1`, `565-2`, etc.).
+- **Estado y clasificación del derivado:** La solicitud derivada hereda la aprobación de líderes y la primera autorización de Suficiencia de la original, y nace directamente en `AUTORIZA_SUFICIENCIA` con `purchase_type = NULL` para que Recursos Materiales le asigne su nuevo tipo de compra.
+- **Bloqueo por Cuadro Comparativo (`CC-32`):** No se permite segmentar una solicitud mientras tenga un Cuadro Comparativo guardado; primero debe eliminar el cuadro (lo cual solo es posible mientras siga en `EN_REVISION_RECURSOS`).
+- 🔜 **Por definir:** mecánica exacta del reparto presupuestal de `request_components` (`estimated_amount` y `final_amount`) y actualización de `total_amount_estimated` entre la solicitud original y el subfolio derivado.
 
 ## 6. Visibilidad
 
@@ -266,28 +281,28 @@ Fotos del proceso actual en papel. Sirven como referencia de qué datos maneja c
 | [Distribución por actividad](evidencia/distribucion-por-actividad.jpeg) | Cómo se reparte el total entre actividades de distintos componentes. Cada bloque lo firma el líder de esa actividad, y cada líder ve **solo su bloque** | La partida de gasto en cada bloque: en el sistema la partida pertenece solo a los productos |
 | [Una actividad con varias fuentes](evidencia/distribucion-actividad-varias-fuentes.jpeg) | La misma actividad (0401) repartida entre dos fuentes de financiamiento (Estatal y Federal). Por eso el `UNIQUE` de las filas incluye `funding_source_id` | La columna de partida |
 
-Referencias adicionales usadas para el Cuadro Comparativo ([sección 10](#10-cuadro-comparativo-adjudicación-directa)):
+Referencias adicionales usadas para el Cuadro Comparativo ([sección 10](#10-cuadro-comparativo-adjudicación-directa-invitación-y-licitación)):
 
 - **Formato oficial e Instructivo de llenado del Cuadro Comparativo** (ITSOEH / SGI Grupo 4 Multisitios, 24 campos numerados; el sistema genera un archivo **Excel (`.xlsx`)** con los campos 1–20 y excluye los campos de firma 21–24, que Recursos Materiales agrega manualmente).
 - **Instructivo de Adjudicaciones Directas** (10 páginas; clasificación de proveedores en pág. 3, criterios de evaluación y mecánica en págs. 4–5 y secuencia de etapas en págs. 6–8).
 - **Formato oficial e Instructivo de Solicitud de Materiales y/o Servicios** (3 páginas; pág. 1 solicitud con campos 1–27, pág. 2 orden de compra/datos bancarios y fiscales con campos 28–30 para fase posterior, pág. 3 instructivo).
 - **Ejemplos físicos reales del folio `00267`** (Cuadro Comparativo del `17/07/2026` y Solicitud de Materiales y/o Servicios del `01/07/2026` firmados), que confirman la aritmética: subtotal sin IVA (`$10,101.90`) + IVA (`$1,616.30`) − retenciones (`$0.00`) = Total (`$11,718.20`).
 
-## 10. Cuadro comparativo (Adjudicación directa)
+## 10. Cuadro comparativo (Adjudicación directa, Invitación y Licitación)
 
 ### 10.1 Alcance y relación con el flujo
 
-El **Cuadro Comparativo** es el estudio de mercado formal que captura el Departamento de Recursos Materiales y Servicios durante el estado `EN_REVISION_RECURSOS`, **exclusivamente** cuando clasifica una solicitud con tipo de compra `COMPRA_ADJ_DIRECTA` (Adjudicación directa).
+El **Cuadro Comparativo** es el estudio de mercado formal que captura el Departamento de Recursos Materiales y Servicios durante el estado `EN_REVISION_RECURSOS` cuando clasifica una solicitud en las modalidades **`COMPRA_ADJ_DIRECTA`** (Adjudicación directa), **`COMPRA_INVITACION`** (Invitación a tres personas) o **`COMPRA_LICITACION`** (Licitación pública).
 
-- **Clasificación previa:** Recursos Materiales recibe la solicitud sin clasificar (`purchase_type = NULL`) en `AUTORIZA_SUFICIENCIA`; al elegir el tipo de compra, la solicitud pasa automáticamente a `EN_REVISION_RECURSOS` y entra en la bandeja correspondiente a ese tipo. Mientras siga en `EN_REVISION_RECURSOS`, se puede cambiar el `purchase_type`.
-- **Edición controlada sin borradores:** La captura se realiza completa en una sola exhibición (no existen borradores parciales), pero **se permite editar el Cuadro Comparativo mientras la solicitud siga en `EN_REVISION_RECURSOS`** (enviándolo completo en cada actualización).
+- **Clasificación previa:** Recursos Materiales recibe la solicitud sin clasificar (`purchase_type = NULL`) en `AUTORIZA_SUFICIENCIA`; al elegir el tipo de compra, la solicitud pasa automáticamente a `EN_REVISION_RECURSOS` y entra en la bandeja correspondiente a ese tipo. Mientras siga en `EN_REVISION_RECURSOS`, puede cambiar el `purchase_type` (si no tiene un Cuadro Comparativo guardado) o segmentarla en subfolios ([sección 5.3](#53-segmentación-de-solicitudes)).
+- **Edición y eliminación controlada sin borradores:** La captura se realiza completa en una sola exhibición (no existen borradores parciales). Mientras la solicitud siga en `EN_REVISION_RECURSOS`, se permite **editar** el Cuadro Comparativo (enviándolo completo) o **eliminarlo** (lo cual también desbloquea la segmentación o el cambio de modalidad).
 - **Descarga en Excel (`.xlsx`):** Guardar o actualizar el Cuadro Comparativo **no** cambia el estado de la solicitud ni inicia flujos digitales nuevos; habilita la descarga del archivo **Excel (`.xlsx`)** con cabecera, productos, cotizaciones, totales, criterios de evaluación, proveedor adjudicado, justificación y fecha de entrega, **sin apartados de firmas** (Recursos Materiales agrega manualmente los firmantes en el Excel descargado).
-- **Paso a Suficiencia y solo lectura:** La solicitud avanza a `PENDIENTE_APROBACION_SUFICIENCIA` únicamente cuando Recursos Materiales confirma el envío explícito a la segunda revisión de Suficiencia Presupuestal. A partir de ese momento, el Cuadro Comparativo queda en **solo lectura**.
+- **Paso a Suficiencia y solo lectura:** La solicitud avanza a `PENDIENTE_APROBACION_SUFICIENCIA` únicamente cuando Recursos Materiales confirma el envío explícito a la segunda revisión de Suficiencia Presupuestal. A partir de ese momento, el Cuadro Comparativo queda en **solo lectura** (editar y eliminar se deshabilitan).
 - **Fuera del alcance de esta sección** (se documentan aparte más adelante):
   - Alta y administración del catálogo de proveedores (datos generales, bancarios, fiscales y clasificación `Críticos` / `Únicos` / `Menores`).
   - Evaluación trimestral acumulada de proveedores (*Reporte de Evaluación a Proveedores*, rangos 8–10 Confiable / 5–7 No confiable).
-  - Estudio de mercado para `COMPRA_MOSTRADOR`, `COMPRA_LICITACION` y `COMPRA_INVITACION`.
-  - Flujo de Orden de Compra (página 2 del formato oficial de Solicitud de Materiales y/o Servicios) después de `APRUEBA_SUFICIENCIA`.
+  - Generación del **Anexo técnico** para `COMPRA_ADJ_DIRECTA`, `COMPRA_INVITACION` y `COMPRA_LICITACION`.
+  - Flujo de **Orden de Compra** (página 2 del formato oficial de Solicitud de Materiales y/o Servicios) después de la segunda validación de Suficiencia (`APRUEBA_SUFICIENCIA`).
 
 ### 10.2 Reglas de negocio verificables (EARS)
 
@@ -297,21 +312,22 @@ Leyenda de método de verificación: **T** = Prueba automatizada (`Test`), **A**
 
 | ID | Patrón EARS | Regla | Verif. | Origen |
 |---|---|---|---|---|
-| `CC-01` | Complejo | Mientras una solicitud esté en estado `EN_REVISION_RECURSOS` y su `purchase_type` sea `COMPRA_ADJ_DIRECTA`, el sistema debe habilitar la captura y edición del Cuadro Comparativo. | `T` | Flujo / Regla 1 |
+| `CC-01` | Complejo | Mientras una solicitud esté en estado `EN_REVISION_RECURSOS` y su `purchase_type` sea `COMPRA_ADJ_DIRECTA`, `COMPRA_INVITACION` o `COMPRA_LICITACION`, el sistema debe habilitar la captura, edición y eliminación del Cuadro Comparativo. | `T` | Flujo / Decisión 26-nov |
 | `CC-02` | Ubicuo | El sistema no debe aplicar validaciones de umbrales en UMAs para habilitar ni restringir el Cuadro Comparativo. | `I` | Regla 3 |
-| `CC-03` | Ubicuo | El sistema debe restringir la captura, edición, consulta, descarga del Excel (`.xlsx`) y envío a Suficiencia del Cuadro Comparativo exclusivamente a usuarios activos con el rol `recursos_materiales` en la base de datos. | `T` | Seguridad / Sec. 1 y 6 |
-| `CC-04` | Si/entonces | Si se intenta guardar o actualizar un Cuadro Comparativo incompleto (faltan proveedores, cotizaciones válidas, criterios de evaluación, puntaje ganador o justificación obligatoria), entonces el sistema debe rechazar la operación sin persistir un borrador parcial. | `T` | Regla 4 |
-| `CC-05` | Complejo | Cada solicitud puede tener como máximo 1 Cuadro Comparativo; mientras la solicitud permanezca en `EN_REVISION_RECURSOS`, el sistema debe permitir editar ese Cuadro Comparativo (enviándolo completo), y una vez que pase a `PENDIENTE_APROBACION_SUFICIENCIA` o posterior debe mantenerlo en solo lectura rechazando cualquier edición o creación adicional. | `T` | Relación 1:1 / Decisión 25-nov |
-| `CC-06` | Cuando | Cuando Recursos Materiales guarda o actualiza un Cuadro Comparativo válido, el sistema debe mantener el estado de la solicitud en `EN_REVISION_RECURSOS` sin realizar transición automática. | `T` | Regla 4 |
-| `CC-07` | Complejo | Mientras una solicitud con `purchase_type = COMPRA_ADJ_DIRECTA` esté en estado `EN_REVISION_RECURSOS` y tenga un Cuadro Comparativo guardado, cuando Recursos Materiales confirme la acción explícita de enviar a segunda revisión de Suficiencia, el sistema debe cambiar el estado de la solicitud a `PENDIENTE_APROBACION_SUFICIENCIA`. | `T` | Regla 4 |
+| `CC-03` | Ubicuo | El sistema debe restringir la captura, edición, eliminación, consulta, descarga del Excel (`.xlsx`) y envío a Suficiencia del Cuadro Comparativo exclusivamente a usuarios activos con el rol `recursos_materiales` en la base de datos. | `T` | Seguridad / Sec. 1 y 6 |
+| `CC-04` | Si/entonces | Si se intenta guardar o actualizar un Cuadro Comparativo incompleto (faltan proveedores, cotizaciones válidas, criterios de evaluación o puntaje ganador), entonces el sistema debe rechazar la operación sin persistir un borrador parcial. | `T` | Regla 4 |
+| `CC-05` | Complejo | Cada solicitud puede tener como máximo 1 Cuadro Comparativo; mientras la solicitud permanezca en `EN_REVISION_RECURSOS`, el sistema debe permitir editar ese Cuadro Comparativo (enviándolo completo) o eliminarlo; una vez que pase a `PENDIENTE_APROBACION_SUFICIENCIA` o posterior debe mantenerlo en solo lectura rechazando cualquier edición, eliminación o creación adicional. | `T` | Relación 1:1 / Decisión 26-nov |
+| `CC-06` | Cuando | Cuando Recursos Materiales guarda, actualiza o elimina un Cuadro Comparativo, el sistema debe mantener el estado de la solicitud en `EN_REVISION_RECURSOS` sin realizar transición automática. | `T` | Regla 4 |
+| `CC-07` | Complejo | Mientras una solicitud con `purchase_type` en `{COMPRA_ADJ_DIRECTA, COMPRA_INVITACION, COMPRA_LICITACION}` esté en estado `EN_REVISION_RECURSOS` y tenga un Cuadro Comparativo guardado, cuando Recursos Materiales confirme la acción explícita de enviar a segunda revisión de Suficiencia, el sistema debe cambiar el estado de la solicitud a `PENDIENTE_APROBACION_SUFICIENCIA`. | `T` | Regla 4 / Decisión 26-nov |
+| `CC-32` | Si/entonces | Si una solicitud cuenta con un Cuadro Comparativo guardado, entonces el sistema debe rechazar su segmentación (o cambio de `purchase_type`) hasta que el Cuadro Comparativo sea eliminado en estado `EN_REVISION_RECURSOS`. | `T` | Decisión 26-nov |
 
-> **Nota de flujo (clasificación):** La transición de `AUTORIZA_SUFICIENCIA` a `EN_REVISION_RECURSOS` ocurre cuando Recursos Materiales asigna `purchase_type`. Mientras la solicitud continúe en `EN_REVISION_RECURSOS`, puede cambiar `purchase_type` entre las opciones vigentes.
+> **Nota de flujo (clasificación):** La transición de `AUTORIZA_SUFICIENCIA` a `EN_REVISION_RECURSOS` ocurre cuando Recursos Materiales asigna `purchase_type`. Mientras la solicitud continúe en `EN_REVISION_RECURSOS` y no tenga Cuadro Comparativo guardado, puede cambiar `purchase_type` o segmentar la solicitud ([sección 5.3](#53-segmentación-de-solicitudes)).
 
 #### Datos heredados y autoría
 
 | ID | Patrón EARS | Regla | Verif. | Origen |
 |---|---|---|---|---|
-| `CC-08` | Ubicuo | El sistema debe tomar automáticamente de la solicitud el folio (`request_number`), el área solicitante (`requester.department.name`), los componentes, las actividades y las fuentes de financiamiento sin permitir su modificación en el Cuadro Comparativo; cuando la solicitud tenga más de una fila de distribución, al generar el Excel del Cuadro Comparativo (y al imprimir la Solicitud) la cabecera debe escribir automáticamente `VARIOS` en componente, actividad, fuente de financiamiento y sus respectivas claves, sin guardar registros ni estados adicionales. | `T` | Campos formato 1, 3, 4, 5, 6 / Decisión 25-nov |
+| `CC-08` | Ubicuo | El sistema debe tomar automáticamente de la solicitud el folio (`folio`), el área solicitante (`requester.department.name`), los componentes, las actividades y las fuentes de financiamiento sin permitir su modificación en el Cuadro Comparativo; cuando la solicitud tenga más de una fila de distribución, al generar el Excel del Cuadro Comparativo (y al imprimir la Solicitud) la cabecera debe escribir automáticamente `VARIOS` en componente, actividad, fuente de financiamiento y sus respectivas claves, sin guardar registros ni estados adicionales. | `T` | Campos formato 1, 3, 4, 5, 6 / Decisión 25-nov |
 | `CC-09` | Ubicuo | El sistema debe listar los artículos del Cuadro Comparativo desde `product_items` respetando su `position` original e incluyendo número secuencial, partida COG (`budget_item.code`), cantidad (`quantity`), unidad de medida (`measurement_unit.name`) y descripción (`description`). | `T` | Campos formato 7–10 |
 | `CC-10` | Cuando | Cuando se guarda o actualiza el Cuadro Comparativo, el sistema debe registrar automáticamente la fecha de elaboración/actualización y el identificador del usuario autenticado que lo capturó. | `T` | Campo formato 2 / Auditoría |
 
@@ -342,11 +358,11 @@ Leyenda de método de verificación: **T** = Prueba automatizada (`Test`), **A**
 | ID | Patrón EARS | Regla | Verif. | Origen |
 |---|---|---|---|---|
 | `CC-23` | Ubicuo | Cada Cuadro Comparativo debe designar automáticamente como proveedor adjudicado al proveedor con el puntaje total más alto entre los 3 del cuadro, cubriendo la solicitud completa. | `T` | Campo formato 19 / Decisión 25-nov |
-| `CC-24` | Si/entonces | Si el `total` del proveedor adjudicado es estrictamente mayor que el `total` mínimo entre los proveedores del cuadro que cotizaron el 100% de los artículos, entonces el sistema debe exigir una justificación de adjudicación no vacía; cuando el adjudicado tiene el menor `total`, la justificación debe ser opcional y conservarse si se captura. | `T` | Regla 2 / Evidencia folio `00267` |
+| `CC-24` | Ubicuo | La justificación de adjudicación debe ser siempre opcional en el Cuadro Comparativo y conservarse si se captura, sin exigirla cuando el proveedor adjudicado tenga un total mayor al de otros proveedores. | `T` | Decisión 26-nov / Evidencia folio `00267` |
 | `CC-25` | Ubicuo | El sistema debe aceptar la fecha de entrega (`delivery_date`) como dato opcional en el Cuadro Comparativo. | `T` | Campo formato 20 / Regla 3 |
 | `CC-26` | Cuando | Cuando Recursos Materiales confirma el envío de la solicitud a `PENDIENTE_APROBACION_SUFICIENCIA`, el sistema debe guardar en cada `product_items.final_amount` el costo total de línea **sin IVA** (`cantidad × costo_unitario`) correspondiente al proveedor adjudicado. | `T` | Regla 4 / Evidencia folio `00267` |
-| `CC-27` | Cuando | Cuando Recursos Materiales confirma el envío de la solicitud a `PENDIENTE_APROBACION_SUFICIENCIA`, el sistema debe registrar los importes finales del proveedor adjudicado en la solicitud: subtotal sin IVA (`importe`), `iva`, `ret_iva`, `ret_isr` y `total_amount_final = importe + iva - ret_iva - ret_isr`. | `T` | Regla 3 y 4 / Evidencia folio `00267` |
-| `CC-28` | Si/entonces | Si Recursos Materiales intenta enviar una solicitud con `purchase_type = COMPRA_ADJ_DIRECTA` a `PENDIENTE_APROBACION_SUFICIENCIA` sin contar con un Cuadro Comparativo guardado, entonces el sistema debe rechazar la transición. | `T` | Integridad de flujo |
+| `CC-27` | Cuando | Cuando Recursos Materiales confirma el envío de la solicitud a `PENDIENTE_APROBACION_SUFICIENCIA`, el sistema debe registrar en la solicitud el proveedor adjudicado (`awarded_provider_id`) y los importes finales: subtotal sin IVA (`final_subtotal`), `final_iva`, `final_retention_iva`, `final_retention_isr` y `total_amount_final = final_subtotal + final_iva - final_retention_iva - final_retention_isr`. | `T` | Regla 3 y 4 / Evidencia folio `00267` |
+| `CC-28` | Si/entonces | Si Recursos Materiales intenta enviar una solicitud con `purchase_type` en `{COMPRA_ADJ_DIRECTA, COMPRA_INVITACION, COMPRA_LICITACION}` a `PENDIENTE_APROBACION_SUFICIENCIA` sin contar con un Cuadro Comparativo guardado, entonces el sistema debe rechazar la transición. | `T` | Integridad de flujo / Decisión 26-nov |
 
 > **Nota sobre criterios de adjudicación:** Por definición vigente, los puntajes manuales no empatan y tampoco se aplica restricción de artículos sin cotizar sobre el proveedor ganador. Estas reglas no se modelan por el momento.
 
@@ -376,7 +392,7 @@ Como referencia descriptiva del *Instructivo de Adjudicaciones Directas* (pág. 
 
 | Campo del formato oficial | Nombre en el instructivo | Origen en SIGMAS / salida Excel (`.xlsx`) | Regla |
 |---|---|---|---|
-| `1` | No. solicitud | `purchase_requests.request_number` (folio de la solicitud) | `CC-08` |
+| `1` | No. solicitud | `purchase_requests.folio` (folio de la solicitud o subfolio, ej. `565-1`) | `CC-08` |
 | `2` | Fecha | Fecha de elaboración/actualización registrada en el cuadro | `CC-10` |
 | `3` | Área | `requester.department.name` | `CC-08` |
 | `4` | Componente | Clave/nombre desde `request_components` (`VARIOS` en nombre y clave si hay más de 1 fila) | `CC-08` |
@@ -394,7 +410,7 @@ Como referencia descriptiva del *Instructivo de Adjudicaciones Directas* (pág. 
 | `16` | RET ISR | Capturado por proveedor (por defecto `0.00`) | `CC-17` |
 | `17` | Total | `importe + iva - ret_iva - ret_isr` (`>= 0.00`) | `CC-17`, `CC-18` |
 | `18` | Observaciones (criterios) | 5 criterios manuales (`0–9`), observación obligatoria, puntaje total (`0–45`) y campo extra con el puntaje total más alto | `CC-19` a `CC-22` |
-| `19` | Proveedor adjudicado | Proveedor con el puntaje total más alto + justificación si aplica | `CC-22`, `CC-23`, `CC-24` |
+| `19` | Proveedor adjudicado | Proveedor con el puntaje total más alto + justificación opcional | `CC-22`, `CC-23`, `CC-24` |
 | `20` | Fecha de entrega | Dato opcional capturado en el cuadro (incluido en el Excel) | `CC-25`, `CC-29` |
 | `21–24` | Firmas (`Elaboró`, `Supervisó`, `Autorizó`, `V.B. del área solicitante`) | **Excluidos del Excel (`.xlsx`) generado.** Recursos Materiales los agrega manualmente sobre el archivo descargado (en BD se conserva la auditoría de quien capturó el cuadro) | `CC-10`, `CC-30`, `CC-31` |
 
@@ -411,12 +427,13 @@ En la evidencia del folio `00267` (Cuadro Comparativo del `17/07/2026` y Solicit
 | **Total final (`Importe + IVA - Ret. IVA - Ret. ISR`)** | **`$11,718.20`** | `purchase_requests.total_amount_final` enviado a Suficiencia (`CC-27`) |
 
 - El 3.er proveedor (`COMERCIALIZADORA ALLFIND S. DE R. DE C.V.`) dejó el artículo 2 sin cotizar (`CC-14`).
-- El 2.º proveedor (`NANCY MAYA ESTRADA`) cotizó todos los artículos con un total menor (`$8,270.80 < $11,718.20`), por lo que bajo `CC-24` al adjudicar a Mexdan es obligatorio capturar justificación (como en el formato físico: evaluación superior de criterios / mejores condiciones para el Estado).
+- El 2.º proveedor (`NANCY MAYA ESTRADA`) cotizó todos los artículos con un total menor (`$8,270.80 < $11,718.20`); bajo `CC-24` la justificación al adjudicar a Mexdan es opcional y se conserva si se captura (en el formato físico se asentó: evaluación superior de criterios / mejores condiciones para el Estado).
 
 ## 11. Pendientes por definir
 
-1. Recursos materiales: el Cuadro Comparativo para `COMPRA_ADJ_DIRECTA` ya quedó definido en la [sección 10](#10-cuadro-comparativo-adjudicación-directa). Siguen pendientes:
-   - La mecánica del estudio de mercado para `COMPRA_MOSTRADOR`, `COMPRA_LICITACION` y `COMPRA_INVITACION`.
+1. Recursos materiales: el Cuadro Comparativo para `COMPRA_ADJ_DIRECTA`, `COMPRA_INVITACION` y `COMPRA_LICITACION` ya quedó definido en la [sección 10](#10-cuadro-comparativo-adjudicación-directa-invitación-y-licitación), así como la captura directa de 1 proveedor + 1 importe final para `COMPRA_MOSTRADOR` y la segmentación en subfolios ([sección 5.3](#53-segmentación-de-solicitudes)). Siguen pendientes:
+   - La mecánica y formato del **Anexo técnico** (para `COMPRA_ADJ_DIRECTA`, `COMPRA_INVITACION` y `COMPRA_LICITACION`).
+   - El reparto presupuestal de `request_components` y actualización de `total_amount_estimated` entre la solicitud original y el subfolio derivado al segmentar.
    - Cómo se asigna cada solicitud a una persona dentro del área y si existe un caso "sin proveedor".
    - La propuesta de bandejas de Recursos Materiales (pendiente de validar en implementación):
 
@@ -430,12 +447,12 @@ En la evidencia del folio `00267` (Cuadro Comparativo del `17/07/2026` y Solicit
      | Solicitudes aprobadas | `APRUEBA_SUFICIENCIA`, con búsqueda por folio y por tipo, por separado o juntos |
 
    - Recorrido confirmado para clasificación y estudio:
-     1. Al elegir el tipo de compra desde Clasificación (`AUTORIZA_SUFICIENCIA`), la solicitud pasa automáticamente a `EN_REVISION_RECURSOS` y entra a la bandeja de su tipo (pudiendo cambiar de tipo mientras siga en `EN_REVISION_RECURSOS`).
+     1. Al elegir el tipo de compra desde Clasificación (`AUTORIZA_SUFICIENCIA`), la solicitud pasa automáticamente a `EN_REVISION_RECURSOS` y entra a la bandeja de su tipo (pudiendo cambiar de tipo o segmentarse mientras siga en `EN_REVISION_RECURSOS` y no tenga Cuadro Comparativo guardado).
      2. Al terminar el estudio y confirmar el envío, pasa a `PENDIENTE_APROBACION_SUFICIENCIA` y sale de la bandeja de su tipo.
-     3. Cuando suficiencia la aprueba, aparece en Aprobadas.
+     3. Cuando suficiencia la aprueba, aparece en Aprobadas y se habilita la Orden de compra.
    - Para esto el backend necesitaría:
      - filtros de `purchaseType` y "sin clasificar" en `/resources`,
-     - los endpoints de clasificar/cambiar tipo y terminar el estudio (además de los propios del Cuadro Comparativo y descarga `.xlsx`).
+     - los endpoints de clasificar/cambiar tipo, segmentar en subfolios, capturar Mostrador, CRUD de Cuadro Comparativo + descarga `.xlsx` y envío a segunda validación.
 2. **Catálogo de proveedores y evaluación trimestral:** estructura de datos del catálogo de proveedores (datos generales, clasificación `Críticos` / `Únicos` / `Menores`, datos bancarios y fiscales) y el *Reporte de Evaluación a Proveedores* trimestral (rangos 8–10 Confiable / 5–7 No confiable).
 3. **Orden de compra (página 2 de la Solicitud de Materiales y/o Servicios):** flujo posterior a `APRUEBA_SUFICIENCIA` (captura de datos bancarios y fiscales del proveedor, fecha de pedido, factura y recepción a entera satisfacción).
 4. **Solicitudes con varios componentes, actividades o fuentes de financiamiento:**
